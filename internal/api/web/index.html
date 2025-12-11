@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU视频转码管理系统</title>
+    <link rel="stylesheet" href="/static/style.css?v=20251211">
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <h1>🎬 GPU视频转码管理系统</h1>
+            <div class="health-status" id="healthStatus">
+                <span class="status-dot"></span>
+                <span class="status-text">检查中...</span>
+            </div>
+        </header>
+
+        <nav class="nav-tabs">
+            <button class="tab-btn active" data-tab="dashboard">📊 仪表盘</button>
+            <button class="tab-btn" data-tab="task-queue">📋 任务队列管理</button>
+            <button class="tab-btn" data-tab="add-task">➕ 添加任务</button>
+        </nav>
+
+        <!-- 仪表盘 -->
+        <div class="tab-content active" id="dashboard">
+            <div class="section-header" style="margin-bottom:20px;">
+                <h2>📈 任务统计</h2>
+                <button class="btn btn-primary" onclick="refreshDashboard()">🔄 刷新统计</button>
+            </div>
+            <div class="stats-grid">
+                <div class="stat-card clickable" onclick="showTasksByStatus('pending')">
+                    <div class="stat-icon">🕐</div>
+                    <div class="stat-info">
+                        <div class="stat-value" id="pendingTasks">-</div>
+                        <div class="stat-label">任务等待</div>
+                    </div>
+                </div>
+                <div class="stat-card clickable" onclick="showTasksByStatus('processing')">
+                    <div class="stat-icon">🔄</div>
+                    <div class="stat-info">
+                        <div class="stat-value" id="processingTasks">-</div>
+                        <div class="stat-label">任务处理中</div>
+                    </div>
+                </div>
+                <div class="stat-card clickable" onclick="showTasksByStatus('completed')">
+                    <div class="stat-icon">✅</div>
+                    <div class="stat-info">
+                        <div class="stat-value" id="completedTasks">-</div>
+                        <div class="stat-label">任务已完成</div>
+                    </div>
+                </div>
+                <div class="stat-card clickable" onclick="showTasksByStatus('failed')">
+                    <div class="stat-icon">❌</div>
+                    <div class="stat-info">
+                        <div class="stat-value" id="failedTasks">-</div>
+                        <div class="stat-label">任务失败</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 展开的任务列表区域 -->
+            <div class="section" id="dashboardTasksSection" style="display:none;">
+                <div class="section-header">
+                    <h2 id="dashboardTasksTitle">📋 任务列表</h2>
+                    <button class="btn btn-secondary btn-small" onclick="closeDashboardTasks()">✕ 关闭</button>
+                </div>
+                <div class="table-container">
+                    <table class="data-table" id="dashboardTasksTable">
+                        <thead>
+                            <tr>
+                                <th>任务ID</th>
+                                <th>输入文件</th>
+                                <th>转码类型</th>
+                                <th>状态</th>
+                                <th>进度</th>
+                                <th>创建时间</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+                <div class="pagination" id="dashboardTasksPagination"></div>
+            </div>
+
+            <div class="section">
+                <h2>📋 最近任务</h2>
+                <div class="table-container">
+                    <table class="data-table" id="recentTasksTable">
+                        <thead>
+                            <tr>
+                                <th>任务ID</th>
+                                <th>输入文件</th>
+                                <th>状态</th>
+                                <th>创建时间</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- 任务队列管理（合并后） -->
+        <div class="tab-content" id="task-queue">
+            <!-- 队列状态 -->
+            <div class="queue-status-panel" style="margin-bottom:20px;">
+                <div class="section-header">
+                    <h2>📬 队列状态</h2>
+                    <div class="queue-actions">
+                        <button class="btn btn-primary btn-small" onclick="refreshQueueStatus()">🔄 刷新</button>
+                        <button class="btn btn-danger btn-small" onclick="purgeQueue()">🗑️ 清空队列</button>
+                    </div>
+                </div>
+                <div class="queue-stats">
+                    <div class="queue-stat">
+                        <span class="queue-stat-label">等待处理:</span>
+                        <span class="queue-stat-value" id="queueWaiting">-</span>
+                    </div>
+                    <div class="queue-stat">
+                        <span class="queue-stat-label">正在处理:</span>
+                        <span class="queue-stat-value" id="queueProcessing">-</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 任务列表 -->
+            <div class="section">
+                <h2>📋 任务列表</h2>
+                <div class="filter-bar">
+                    <div class="filter-group">
+                        <label>状态筛选:</label>
+                        <select id="statusFilter">
+                            <option value="">全部</option>
+                            <option value="pending">等待中</option>
+                            <option value="processing">处理中</option>
+                            <option value="completed">已完成</option>
+                            <option value="failed">失败</option>
+                            <option value="retrying">重试中</option>
+                            <option value="cancelled">已取消</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label>日期:</label>
+                        <input type="date" id="dateFilter">
+                        <button class="btn btn-secondary btn-small" onclick="clearDateFilter()" title="清除日期筛选">✕</button>
+                    </div>
+                    <button class="btn btn-primary" onclick="loadTasks()">🔍 查询</button>
+                    <button class="btn btn-secondary" onclick="refreshTasks()">🔄 刷新</button>
+                </div>
+
+                <div class="table-container">
+                    <table class="data-table" id="tasksTable">
+                        <thead>
+                            <tr>
+                                <th>任务ID</th>
+                                <th>输入文件</th>
+                                <th>转码类型</th>
+                                <th>状态</th>
+                                <th>进度</th>
+                                <th>创建时间</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+
+                <div class="pagination" id="tasksPagination"></div>
+            </div>
+        </div>
+
+        <!-- 添加任务 -->
+        <div class="tab-content" id="add-task">
+            <div class="form-panel">
+                <h2>➕ 添加转码任务</h2>
+                <form id="addTaskForm" onsubmit="submitTask(event)">
+                    <div class="form-group">
+                        <label for="inputBucket">输入桶 (Input Bucket):</label>
+                        <input type="text" id="inputBucket" required placeholder="例如: my-video-input-bucket">
+                    </div>
+                    <div class="form-group">
+                        <label for="inputKey">输入文件路径 (Input Key):</label>
+                        <input type="text" id="inputKey" required placeholder="例如: videos/sample.mp4">
+                    </div>
+                    <div class="form-group">
+                        <label>转码类型:</label>
+                        <div class="checkbox-group">
+                            <label class="checkbox-label">
+                                <input type="checkbox" name="transcodeType" value="mp4_standard" checked>
+                                mp4_standard (标清 848x480)
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="checkbox" name="transcodeType" value="mp4_smooth">
+                                mp4_smooth (流畅 640x360)
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="checkbox" name="transcodeType" value="hdlbr_h265">
+                                hdlbr_h265 (高质量H265)
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="checkbox" name="transcodeType" value="lcd_h265">
+                                lcd_h265 (LCD优化H265)
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="checkbox" name="transcodeType" value="h265_mute">
+                                h265_mute (静音H265)
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="checkbox" name="transcodeType" value="custom_mute_preview">
+                                custom_mute_preview (静音预览)
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="checkbox" name="transcodeType" value="thumbnail" checked>
+                                thumbnail (缩略图)
+                            </label>
+                        </div>
+                    </div>
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary btn-large">🚀 提交任务</button>
+                        <button type="reset" class="btn btn-secondary">🔄 重置</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- 任务详情模态框 -->
+        <div class="modal" id="taskDetailModal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>📋 任务详情</h3>
+                    <button class="modal-close" onclick="closeModal()">&times;</button>
+                </div>
+                <div class="modal-body" id="taskDetailContent"></div>
+            </div>
+        </div>
+
+        <!-- Toast 通知 -->
+        <div class="toast-container" id="toastContainer"></div>
+    </div>
+
+    <script src="/static/app.js?v=20251211"></script>
+</body>
+</html>

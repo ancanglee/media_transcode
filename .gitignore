@@ -1,0 +1,112 @@
+# 编译输出
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Go测试文件
+*.test
+*.out
+
+# Go工作区文件
+go.work
+
+# 配置文件（包含敏感信息）
+config.env
+*.env
+!config.example.env
+
+# SSH密钥
+*.pem
+*.key
+id_rsa*
+
+# 日志文件
+*.log
+logs/
+
+# 临时文件
+tmp/
+temp/
+.tmp/
+
+# 备份文件
+*.backup
+*.bak
+*~
+
+# 操作系统文件
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE文件
+.vscode/
+.idea/
+.kiro/
+*.swp
+*.swo
+*~
+
+# 测试覆盖率
+coverage.txt
+coverage.out
+
+# 依赖目录
+vendor/
+
+# 本地开发文件
+.env.local
+.env.development
+.env.test
+.env.production
+
+# AWS相关
+.aws/
+credentials
+
+# 部署相关
+deployment/
+terraform.tfstate*
+.terraform/
+
+# 文档生成
+docs/_build/
+docs/.doctrees/
+
+# 测试输出
+test-results/
+test-output/
+
+# 性能分析文件
+*.prof
+*.pprof
+
+# 调试文件
+debug
+debug.test
+
+# 本地数据库
+*.db
+*.sqlite
+*.sqlite3
+
+# 缓存文件
+.cache/
+cache/
+
+# 构建缓存
+.build/
+build/
+
+# 本地配置覆盖
+local.env
+override.env
+config.env
+

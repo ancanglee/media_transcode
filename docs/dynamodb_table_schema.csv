@@ -1,0 +1,32 @@
+分类,字段名,类型,必填,说明
+基础信息,task_id,String,是,任务唯一标识（主键/分区键）
+基础信息,date_partition,String,是,日期分区键（格式: 2025-01-15）用于GSI查询
+基础信息,input_bucket,String,是,输入视频所在的 S3 桶
+基础信息,input_key,String,是,输入视频的 S3 对象键
+基础信息,output_bucket,String,是,输出文件的 S3 桶
+基础信息,transcode_types,List<String>,是,转码类型列表
+状态与时间,status,String,是,任务状态: pending/processing/completed/failed/retrying/cancelled
+状态与时间,created_at,Timestamp,是,创建时间
+状态与时间,updated_at,Timestamp,是,最后更新时间
+状态与时间,started_at,Timestamp,否,开始处理时间
+状态与时间,completed_at,Timestamp,否,完成时间
+重试与错误,retry_count,Number,是,已重试次数
+重试与错误,max_retries,Number,是,最大重试次数（默认3）
+重试与错误,error_message,String,否,错误摘要信息
+重试与错误,error_details,List<Object>,否,详细错误信息列表
+进度与输出,progress,Map<String:String>,是,各转码类型的进度状态
+进度与输出,output_files,Map<String:String>,是,输出文件路径映射
+
+error_details 子结构
+字段名,类型,说明
+transcode_type,String,转码类型
+stage,String,失败阶段: download/transcode/upload
+error,String,错误信息
+command,String,执行的命令（限1000字符）
+output,String,命令输出/日志（限5000字符）
+timestamp,Timestamp,错误发生时间
+
+GSI 索引设计
+索引名称,分区键(PK),排序键(SK),用途
+date-index,date_partition,created_at,按日期查询任务（高效）
+status-index,status,created_at,按状态查询任务（高效）
