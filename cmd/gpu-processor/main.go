@@ -48,11 +48,18 @@ func main() {
 	// 创建管理器
 	queueManager := queue.NewManager(sqsClient, cfg.SQSQueueURL)
 	taskManager := task.NewManager(dynamoClient, cfg.DynamoDBTable)
+	presetManager := transcode.NewPresetManager(dynamoClient, cfg.DynamoDBTable)
+
+	// 加载自定义预设
+	if err := presetManager.LoadCustomPresets(); err != nil {
+		log.Printf("⚠️ 加载自定义预设失败: %v", err)
+	}
 
 	// 创建转码处理器
-	processor := transcode.NewProcessor(s3Client, taskManager, cfg.TempDir, cfg.OutputBucket, cfg.Debug)
+	processor := transcode.NewProcessor(s3Client, taskManager, presetManager, cfg.TempDir, cfg.OutputBucket, cfg.Debug)
 
-	log.Printf("✅ GPU处理器初始化完成")
+	log.Printf("✅ 处理器初始化完成")
+	log.Printf("🖥️  平台: %s (GPU: %v)", processor.GetPlatformInfo().Platform, processor.GetPlatformInfo().GPUAvailable)
 	log.Printf("📁 临时目录: %s", cfg.TempDir)
 	log.Printf("🪣 输出桶: %s", cfg.OutputBucket)
 	log.Printf("📋 队列URL: %s", cfg.SQSQueueURL)

@@ -227,3 +227,4 @@ aws dynamodb update-table \
 3. **成本**: GSI 会增加存储和写入成本（相当于维护一份数据副本）
 4. **兼容性**: 新代码兼容旧数据（没有 `date_partition` 的记录会在 Scan 时正常返回）
 5. **按需模式**: 推荐使用 PAY_PER_REQUEST 模式，省心且适合波动负载
+ 

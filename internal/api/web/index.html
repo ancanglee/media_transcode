@@ -18,15 +18,20 @@
 
         <nav class="nav-tabs">
             <button class="tab-btn active" data-tab="dashboard">📊 仪表盘</button>
+            <button class="tab-btn" data-tab="ai-transcode">🤖 AI智能转码</button>
             <button class="tab-btn" data-tab="task-queue">📋 任务队列管理</button>
             <button class="tab-btn" data-tab="add-task">➕ 添加任务</button>
+            <button class="tab-btn" data-tab="presets">⚙️ 预设管理</button>
         </nav>
 
         <!-- 仪表盘 -->
         <div class="tab-content active" id="dashboard">
             <div class="section-header" style="margin-bottom:20px;">
                 <h2>📈 任务统计</h2>
-                <button class="btn btn-primary" onclick="refreshDashboard()">🔄 刷新统计</button>
+                <div style="display:flex;gap:10px;align-items:center;">
+                    <span id="platformInfo" class="platform-badge"></span>
+                    <button class="btn btn-primary" onclick="refreshDashboard()">🔄 刷新统计</button>
+                </div>
             </div>
             <div class="stats-grid">
                 <div class="stat-card clickable" onclick="showTasksByStatus('pending')">
@@ -99,6 +104,67 @@
                         </thead>
                         <tbody></tbody>
                     </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- AI智能转码 -->
+        <div class="tab-content" id="ai-transcode">
+            <div class="form-panel">
+                <h2>🤖 AI智能转码参数生成</h2>
+                <p class="hint">用自然语言描述你的转码需求，AI会自动生成对应的FFmpeg参数</p>
+                
+                <form id="aiTranscodeForm" onsubmit="generateFFmpegParams(event)">
+                    <div class="form-group">
+                        <label for="aiRequirement">转码需求描述:</label>
+                        <textarea id="aiRequirement" rows="3" required 
+                            placeholder="例如：帮我把视频转成720p分辨率，保持较高画质，文件大小控制在原来的一半左右"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label for="aiInputFormat">输入格式 (可选):</label>
+                        <input type="text" id="aiInputFormat" placeholder="例如: mp4, mov, avi">
+                    </div>
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary btn-large" id="generateBtn">🚀 生成参数</button>
+                    </div>
+                </form>
+
+                <!-- 生成结果 -->
+                <div id="aiResult" class="ai-result" style="display:none;">
+                    <h3>📋 生成结果</h3>
+                    <div class="result-grid">
+                        <div class="result-item">
+                            <label>任务名称:</label>
+                            <span id="resultName"></span>
+                        </div>
+                        <div class="result-item">
+                            <label>描述:</label>
+                            <span id="resultDescription"></span>
+                        </div>
+                        <div class="result-item">
+                            <label>输出格式:</label>
+                            <span id="resultOutputExt"></span>
+                        </div>
+                        <div class="result-item">
+                            <label>预估速度:</label>
+                            <span id="resultSpeed"></span>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>FFmpeg 参数:</label>
+                        <pre id="resultArgs" class="code-block"></pre>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>参数解释:</label>
+                        <div id="resultExplanation" class="explanation-box"></div>
+                    </div>
+
+                    <div class="form-actions">
+                        <button class="btn btn-secondary" onclick="testFFmpegParams()">🧪 测试参数</button>
+                        <button class="btn btn-primary" onclick="saveAsPreset()">💾 保存为预设</button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -187,35 +253,8 @@
                     </div>
                     <div class="form-group">
                         <label>转码类型:</label>
-                        <div class="checkbox-group">
-                            <label class="checkbox-label">
-                                <input type="checkbox" name="transcodeType" value="mp4_standard" checked>
-                                mp4_standard (标清 848x480)
-                            </label>
-                            <label class="checkbox-label">
-                                <input type="checkbox" name="transcodeType" value="mp4_smooth">
-                                mp4_smooth (流畅 640x360)
-                            </label>
-                            <label class="checkbox-label">
-                                <input type="checkbox" name="transcodeType" value="hdlbr_h265">
-                                hdlbr_h265 (高质量H265)
-                            </label>
-                            <label class="checkbox-label">
-                                <input type="checkbox" name="transcodeType" value="lcd_h265">
-                                lcd_h265 (LCD优化H265)
-                            </label>
-                            <label class="checkbox-label">
-                                <input type="checkbox" name="transcodeType" value="h265_mute">
-                                h265_mute (静音H265)
-                            </label>
-                            <label class="checkbox-label">
-                                <input type="checkbox" name="transcodeType" value="custom_mute_preview">
-                                custom_mute_preview (静音预览)
-                            </label>
-                            <label class="checkbox-label">
-                                <input type="checkbox" name="transcodeType" value="thumbnail" checked>
-                                thumbnail (缩略图)
-                            </label>
+                        <div class="checkbox-group" id="transcodeTypeCheckboxes">
+                            <!-- 动态加载预设 -->
                         </div>
                     </div>
                     <div class="form-actions">
@@ -223,6 +262,31 @@
                         <button type="reset" class="btn btn-secondary">🔄 重置</button>
                     </div>
                 </form>
+            </div>
+        </div>
+
+        <!-- 预设管理 -->
+        <div class="tab-content" id="presets">
+            <div class="section">
+                <div class="section-header">
+                    <h2>⚙️ 转码预设管理</h2>
+                    <button class="btn btn-primary" onclick="loadPresets()">🔄 刷新</button>
+                </div>
+                <div class="table-container">
+                    <table class="data-table" id="presetsTable">
+                        <thead>
+                            <tr>
+                                <th>预设ID</th>
+                                <th>名称</th>
+                                <th>描述</th>
+                                <th>输出格式</th>
+                                <th>类型</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
             </div>
         </div>
 
@@ -234,6 +298,53 @@
                     <button class="modal-close" onclick="closeModal()">&times;</button>
                 </div>
                 <div class="modal-body" id="taskDetailContent"></div>
+            </div>
+        </div>
+
+        <!-- 测试转码模态框 -->
+        <div class="modal" id="testModal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>🧪 测试转码参数</h3>
+                    <button class="modal-close" onclick="closeTestModal()">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label for="testInputFile">本地测试文件路径:</label>
+                        <input type="text" id="testInputFile" placeholder="例如: /tmp/test.mp4">
+                    </div>
+                    <div class="form-actions">
+                        <button class="btn btn-primary" onclick="runTest()">▶️ 运行测试</button>
+                    </div>
+                    <div id="testResult" style="display:none;">
+                        <h4>测试结果:</h4>
+                        <pre id="testOutput" class="code-block"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 保存预设模态框 -->
+        <div class="modal" id="savePresetModal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>💾 保存为预设</h3>
+                    <button class="modal-close" onclick="closeSavePresetModal()">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label for="presetName">预设名称:</label>
+                        <input type="text" id="presetName" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="presetDescription">描述:</label>
+                        <textarea id="presetDescription" rows="2"></textarea>
+                    </div>
+                    <div class="form-actions">
+                        <button class="btn btn-primary" onclick="confirmSavePreset()">💾 保存</button>
+                        <button class="btn btn-secondary" onclick="closeSavePresetModal()">取消</button>
+                    </div>
+                </div>
             </div>
         </div>
 

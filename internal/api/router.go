@@ -6,7 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func SetupRouter(handlers *Handlers, debug bool) *gin.Engine {
+func SetupRouter(handlers *Handlers, llmHandlers *LLMHandlers, debug bool) *gin.Engine {
 	if !debug {
 		gin.SetMode(gin.ReleaseMode)
 	}
@@ -31,6 +31,9 @@ func SetupRouter(handlers *Handlers, debug bool) *gin.Engine {
 		// 系统配置
 		api.GET("/config", handlers.GetConfig)
 
+		// 平台信息
+		api.GET("/platform", llmHandlers.GetPlatformInfo)
+
 		// 队列管理
 		queue := api.Group("/queue")
 		{
@@ -47,6 +50,22 @@ func SetupRouter(handlers *Handlers, debug bool) *gin.Engine {
 			tasks.POST("/:task_id/retry", handlers.RetryTask)
 			tasks.POST("/:task_id/abort", handlers.AbortTask)
 			tasks.DELETE("/:task_id", handlers.CancelTask)
+		}
+
+		// LLM 智能转码
+		llm := api.Group("/llm")
+		{
+			llm.POST("/generate", llmHandlers.GenerateFFmpegParams)
+			llm.POST("/test", llmHandlers.TestFFmpegParams)
+		}
+
+		// 预设管理
+		presets := api.Group("/presets")
+		{
+			presets.GET("", llmHandlers.ListPresets)
+			presets.POST("", llmHandlers.SavePreset)
+			presets.GET("/:preset_id", llmHandlers.GetPreset)
+			presets.DELETE("/:preset_id", llmHandlers.DeletePreset)
 		}
 
 		// 文件上传

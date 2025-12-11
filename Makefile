@@ -1,12 +1,15 @@
 # GPU视频转码系统 Makefile
+# 支持 macOS (Apple Silicon VideoToolbox) 和 Linux (NVIDIA NVENC)
 
-.PHONY: help build clean deps start-api start-gpu start-all stop-all stop-api stop-gpu status logs
+.PHONY: help build build-linux build-macos clean deps start-api start-gpu start-all stop-all stop-api stop-gpu status logs check-platform
 
 # 默认目标
 help:
 	@echo "GPU视频转码系统 - 可用命令:"
 	@echo ""
-	@echo "  build         - 编译所有组件"
+	@echo "  build         - 编译所有组件 (当前平台)"
+	@echo "  build-linux   - 交叉编译为 Linux (用于 NVIDIA GPU 服务器)"
+	@echo "  build-macos   - 编译为 macOS (用于 Apple Silicon)"
 	@echo "  deps          - 安装Go依赖"
 	@echo "  start-api     - 启动API服务器 (后台，端口9999)"
 	@echo "  start-gpu     - 启动GPU处理器 (后台)"
@@ -16,10 +19,16 @@ help:
 	@echo "  stop-gpu      - 仅停止GPU处理器"
 	@echo "  status        - 查看服务运行状态"
 	@echo "  logs          - 查看所有服务日志"
+	@echo "  check-platform- 检测当前平台和硬件加速支持"
 	@echo "  clean         - 清理编译文件"
 	@echo "  help          - 显示此帮助信息"
 	@echo ""
 	@echo "Web管理界面: http://localhost:9999/admin"
+	@echo ""
+	@echo "支持的平台:"
+	@echo "  - macOS (Apple Silicon): 使用 VideoToolbox 硬件加速"
+	@echo "  - Linux (NVIDIA GPU): 使用 NVENC 硬件加速"
+	@echo "  - 其他: 使用 CPU 软件编码"
 
 # 编译所有组件（本地编译）
 build:
@@ -28,12 +37,43 @@ build:
 	go build -o bin/api-server ./cmd/api-server
 	go build -o bin/gpu-processor ./cmd/gpu-processor
 
-# 交叉编译为 Linux（用于部署到 Linux 服务器）
+# 交叉编译为 Linux（用于部署到 Linux NVIDIA GPU 服务器）
 build-linux:
 	go mod tidy
 	mkdir -p bin
-	GOOS=linux GOARCH=amd64 go build -o bin/api-server ./cmd/api-server
-	GOOS=linux GOARCH=amd64 go build -o bin/gpu-processor ./cmd/gpu-processor
+	GOOS=linux GOARCH=amd64 go build -o bin/api-server-linux ./cmd/api-server
+	GOOS=linux GOARCH=amd64 go build -o bin/gpu-processor-linux ./cmd/gpu-processor
+	@echo "Linux 二进制文件已生成: bin/api-server-linux, bin/gpu-processor-linux"
+
+# 编译为 macOS (Apple Silicon)
+build-macos:
+	go mod tidy
+	mkdir -p bin
+	GOOS=darwin GOARCH=arm64 go build -o bin/api-server-macos ./cmd/api-server
+	GOOS=darwin GOARCH=arm64 go build -o bin/gpu-processor-macos ./cmd/gpu-processor
+	@echo "macOS 二进制文件已生成: bin/api-server-macos, bin/gpu-processor-macos"
+
+# 检测当前平台和硬件加速支持
+check-platform:
+	@echo "=== 平台检测 ==="
+	@echo ""
+	@echo "操作系统: $$(uname -s)"
+	@echo "架构: $$(uname -m)"
+	@echo ""
+	@echo "FFmpeg 版本:"
+	@ffmpeg -version 2>/dev/null | head -1 || echo "  FFmpeg 未安装"
+	@echo ""
+	@echo "硬件加速支持:"
+	@if [ "$$(uname -s)" = "Darwin" ]; then \
+		echo "  检测 VideoToolbox..."; \
+		ffmpeg -encoders 2>/dev/null | grep -q "hevc_videotoolbox" && echo "  ✓ hevc_videotoolbox 可用" || echo "  ✗ hevc_videotoolbox 不可用"; \
+		ffmpeg -encoders 2>/dev/null | grep -q "h264_videotoolbox" && echo "  ✓ h264_videotoolbox 可用" || echo "  ✗ h264_videotoolbox 不可用"; \
+	else \
+		echo "  检测 NVIDIA NVENC..."; \
+		nvidia-smi 2>/dev/null | head -1 || echo "  ✗ NVIDIA GPU 不可用"; \
+		ffmpeg -encoders 2>/dev/null | grep -q "hevc_nvenc" && echo "  ✓ hevc_nvenc 可用" || echo "  ✗ hevc_nvenc 不可用"; \
+		ffmpeg -encoders 2>/dev/null | grep -q "h264_nvenc" && echo "  ✓ h264_nvenc 可用" || echo "  ✗ h264_nvenc 不可用"; \
+	fi
 
 # 启动API服务器 (端口9999) - 后台运行
 start-api:

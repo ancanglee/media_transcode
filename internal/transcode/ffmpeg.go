@@ -99,12 +99,15 @@ func (p *Processor) runFFmpegCommandWithLog(cmd *exec.Cmd, taskName string) *Tra
 	}
 }
 
-// getVideoEncoder 根据GPU可用性选择视频编码器
+// getVideoEncoder 根据平台选择视频编码器
 func (p *Processor) getVideoEncoder() string {
-	if p.gpuAvailable {
-		return "hevc_nvenc" // GPU硬件编码器
+	if p.platformInfo != nil {
+		return p.platformInfo.H265Encoder
 	}
-	return "libx265" // CPU软件编码器
+	if p.gpuAvailable {
+		return "hevc_nvenc"
+	}
+	return "libx265"
 }
 
 // getScaleFilter 根据GPU可用性选择缩放滤镜
@@ -118,10 +121,32 @@ func (p *Processor) getScaleFilter(width, height int) string {
 
 // getHWAccelArgs 获取硬件加速参数
 func (p *Processor) getHWAccelArgs() []string {
+	if p.platformInfo != nil {
+		return p.platformInfo.HWAccelArgs
+	}
 	if p.gpuAvailable {
 		return []string{"-hwaccel", "cuda"}
 	}
 	return []string{}
+}
+
+// getQualityArgs 获取质量参数
+func (p *Processor) getQualityArgs(quality int) []string {
+	if p.platformInfo != nil {
+		return p.platformInfo.GetQualityParam(quality)
+	}
+	if p.gpuAvailable {
+		return []string{"-cq", fmt.Sprintf("%d", quality)}
+	}
+	return []string{"-crf", fmt.Sprintf("%d", quality)}
+}
+
+// getPresetArgs 获取预设参数
+func (p *Processor) getPresetArgs(preset string) []string {
+	if p.platformInfo != nil {
+		return p.platformInfo.GetPresetParam(preset)
+	}
+	return []string{"-preset", preset}
 }
 
 // createMp4StandardWithLog MP4标清转码带日志
@@ -136,51 +161,16 @@ func (p *Processor) createMp4StandardWithLog(inputFile, outputFile string) *Tran
 	return p.runFFmpegCommandWithLog(cmd, taskName)
 }
 
-// createMp4Standard MP4标清转码 - GPU加速版本
+// createMp4Standard MP4标清转码 - 跨平台硬件加速版本
 func (p *Processor) createMp4Standard(inputFile, outputFile string) error {
-	log.Printf("创建MP4标清(GPU加速 H.265+MP3智能缩放): %s -> %s", inputFile, outputFile)
+	log.Printf("创建MP4标清(硬件加速 H.265+MP3智能缩放): %s -> %s", inputFile, outputFile)
 
-	// 构建命令参数
-	args := []string{}
-
-	// 添加硬件加速参数
-	args = append(args, p.getHWAccelArgs()...)
-
-	// 输入文件
-	args = append(args, "-i", inputFile)
-
-	// 视频编码参数
-	args = append(args, "-c:v", p.getVideoEncoder())
-	args = append(args, "-preset", "fast")
-
-	if p.gpuAvailable {
-		args = append(args, "-cq", "23") // GPU使用CQ模式
-	} else {
-		args = append(args, "-crf", "23") // CPU使用CRF模式
-	}
-
-	args = append(args, "-maxrate", "800k")
-	args = append(args, "-bufsize", "1600k")
-
-	// 缩放滤镜
-	args = append(args, "-vf", p.getScaleFilter(848, 480))
-
-	// 音频编码参数
-	args = append(args, "-c:a", "libmp3lame")
-	args = append(args, "-b:a", "128k")
-	args = append(args, "-ar", "44100")
-	args = append(args, "-ac", "2")
-
-	// 输出参数
-	args = append(args, "-movflags", "+faststart")
-	args = append(args, "-f", "mp4")
-	args = append(args, "-y", outputFile)
-
+	args := p.buildMp4StandardArgs(inputFile, outputFile)
 	cmd := exec.Command("ffmpeg", args...)
 
 	taskName := "MP4标清(H.265+MP3)"
 	if p.gpuAvailable {
-		taskName += " [GPU加速]"
+		taskName += fmt.Sprintf(" [%s]", p.platformInfo.Platform)
 	}
 
 	return p.runFFmpegCommand(cmd, taskName)
@@ -192,12 +182,8 @@ func (p *Processor) buildMp4StandardArgs(inputFile, outputFile string) []string 
 	args = append(args, p.getHWAccelArgs()...)
 	args = append(args, "-i", inputFile)
 	args = append(args, "-c:v", p.getVideoEncoder())
-	args = append(args, "-preset", "fast")
-	if p.gpuAvailable {
-		args = append(args, "-cq", "23")
-	} else {
-		args = append(args, "-crf", "23")
-	}
+	args = append(args, p.getPresetArgs("fast")...)
+	args = append(args, p.getQualityArgs(23)...)
 	args = append(args, "-maxrate", "800k", "-bufsize", "1600k")
 	args = append(args, "-vf", p.getScaleFilter(848, 480))
 	args = append(args, "-c:a", "libmp3lame", "-b:a", "128k", "-ar", "44100", "-ac", "2")
@@ -223,12 +209,8 @@ func (p *Processor) buildMp4SmoothArgs(inputFile, outputFile string) []string {
 	args = append(args, p.getHWAccelArgs()...)
 	args = append(args, "-i", inputFile)
 	args = append(args, "-c:v", p.getVideoEncoder())
-	args = append(args, "-preset", "fast")
-	if p.gpuAvailable {
-		args = append(args, "-cq", "25")
-	} else {
-		args = append(args, "-crf", "25")
-	}
+	args = append(args, p.getPresetArgs("fast")...)
+	args = append(args, p.getQualityArgs(25)...)
 	args = append(args, "-maxrate", "400k", "-bufsize", "800k")
 	args = append(args, "-vf", p.getScaleFilter(640, 360))
 	args = append(args, "-c:a", "libmp3lame", "-b:a", "128k", "-ar", "44100", "-ac", "2")
@@ -236,51 +218,16 @@ func (p *Processor) buildMp4SmoothArgs(inputFile, outputFile string) []string {
 	return args
 }
 
-// createMp4Smooth MP4流畅转码 - GPU加速版本
+// createMp4Smooth MP4流畅转码 - 跨平台硬件加速版本
 func (p *Processor) createMp4Smooth(inputFile, outputFile string) error {
-	log.Printf("创建MP4流畅(GPU加速 H.265+MP3智能缩放): %s -> %s", inputFile, outputFile)
+	log.Printf("创建MP4流畅(硬件加速 H.265+MP3智能缩放): %s -> %s", inputFile, outputFile)
 
-	// 构建命令参数
-	args := []string{}
-
-	// 添加硬件加速参数
-	args = append(args, p.getHWAccelArgs()...)
-
-	// 输入文件
-	args = append(args, "-i", inputFile)
-
-	// 视频编码参数
-	args = append(args, "-c:v", p.getVideoEncoder())
-	args = append(args, "-preset", "fast")
-
-	if p.gpuAvailable {
-		args = append(args, "-cq", "25") // GPU使用CQ模式
-	} else {
-		args = append(args, "-crf", "25") // CPU使用CRF模式
-	}
-
-	args = append(args, "-maxrate", "400k")
-	args = append(args, "-bufsize", "800k")
-
-	// 缩放滤镜
-	args = append(args, "-vf", p.getScaleFilter(640, 360))
-
-	// 音频编码参数
-	args = append(args, "-c:a", "libmp3lame")
-	args = append(args, "-b:a", "128k")
-	args = append(args, "-ar", "44100")
-	args = append(args, "-ac", "2")
-
-	// 输出参数
-	args = append(args, "-movflags", "+faststart")
-	args = append(args, "-f", "mp4")
-	args = append(args, "-y", outputFile)
-
+	args := p.buildMp4SmoothArgs(inputFile, outputFile)
 	cmd := exec.Command("ffmpeg", args...)
 
 	taskName := "MP4流畅(H.265+MP3)"
 	if p.gpuAvailable {
-		taskName += " [GPU加速]"
+		taskName += fmt.Sprintf(" [%s]", p.platformInfo.Platform)
 	}
 
 	return p.runFFmpegCommand(cmd, taskName)
@@ -292,12 +239,9 @@ func (p *Processor) createHdlbrH265WithLog(inputFile, outputFile string) *Transc
 	args := []string{}
 	args = append(args, p.getHWAccelArgs()...)
 	args = append(args, "-i", inputFile)
-	args = append(args, "-c:v", p.getVideoEncoder(), "-preset", "fast")
-	if p.gpuAvailable {
-		args = append(args, "-cq", "20")
-	} else {
-		args = append(args, "-crf", "20")
-	}
+	args = append(args, "-c:v", p.getVideoEncoder())
+	args = append(args, p.getPresetArgs("fast")...)
+	args = append(args, p.getQualityArgs(20)...)
 	args = append(args, "-maxrate", "6000k", "-bufsize", "12000k", "-r", "25", "-g", "250")
 	args = append(args, "-c:a", "libmp3lame", "-b:a", "128k", "-ar", "44100", "-ac", "2")
 	args = append(args, "-af", "loudnorm=I=-17:TP=-1:LRA=11")
@@ -310,53 +254,27 @@ func (p *Processor) createHdlbrH265WithLog(inputFile, outputFile string) *Transc
 	return p.runFFmpegCommandWithLog(cmd, taskName)
 }
 
-// createHdlbrH265 HDLBR有声H265转码 - GPU加速版本
+// createHdlbrH265 HDLBR有声H265转码 - 跨平台硬件加速版本
 func (p *Processor) createHdlbrH265(inputFile, outputFile string) error {
-	log.Printf("创建HDLBR H265全量(GPU加速): %s -> %s", inputFile, outputFile)
+	log.Printf("创建HDLBR H265全量(硬件加速): %s -> %s", inputFile, outputFile)
 
-	// 构建命令参数
 	args := []string{}
-
-	// 添加硬件加速参数
 	args = append(args, p.getHWAccelArgs()...)
-
-	// 输入文件
 	args = append(args, "-i", inputFile)
-
-	// 视频编码参数
 	args = append(args, "-c:v", p.getVideoEncoder())
-	args = append(args, "-preset", "fast")
-
-	if p.gpuAvailable {
-		args = append(args, "-cq", "20") // GPU使用CQ模式
-	} else {
-		args = append(args, "-crf", "20") // CPU使用CRF模式
-	}
-
-	args = append(args, "-maxrate", "6000k")
-	args = append(args, "-bufsize", "12000k")
-	args = append(args, "-r", "25")
-	args = append(args, "-g", "250")
-
-	// 音频编码参数
-	args = append(args, "-c:a", "libmp3lame")
-	args = append(args, "-b:a", "128k")
-	args = append(args, "-ar", "44100")
-	args = append(args, "-ac", "2")
+	args = append(args, p.getPresetArgs("fast")...)
+	args = append(args, p.getQualityArgs(20)...)
+	args = append(args, "-maxrate", "6000k", "-bufsize", "12000k")
+	args = append(args, "-r", "25", "-g", "250")
+	args = append(args, "-c:a", "libmp3lame", "-b:a", "128k", "-ar", "44100", "-ac", "2")
 	args = append(args, "-af", "loudnorm=I=-17:TP=-1:LRA=11")
-
-	// 输出参数
-	args = append(args, "-movflags", "+faststart")
-	args = append(args, "-f", "mp4")
-	args = append(args, "-y", outputFile)
+	args = append(args, "-movflags", "+faststart", "-f", "mp4", "-y", outputFile)
 
 	cmd := exec.Command("ffmpeg", args...)
-
 	taskName := "HDLBR H265全量(H.265+MP3)"
 	if p.gpuAvailable {
-		taskName += " [GPU加速]"
+		taskName += fmt.Sprintf(" [%s]", p.platformInfo.Platform)
 	}
-
 	return p.runFFmpegCommand(cmd, taskName)
 }
 
@@ -366,12 +284,9 @@ func (p *Processor) createLcdH265WithLog(inputFile, outputFile string) *Transcod
 	args := []string{}
 	args = append(args, p.getHWAccelArgs()...)
 	args = append(args, "-i", inputFile)
-	args = append(args, "-c:v", p.getVideoEncoder(), "-preset", "fast")
-	if p.gpuAvailable {
-		args = append(args, "-cq", "22")
-	} else {
-		args = append(args, "-crf", "22")
-	}
+	args = append(args, "-c:v", p.getVideoEncoder())
+	args = append(args, p.getPresetArgs("fast")...)
+	args = append(args, p.getQualityArgs(22)...)
 	args = append(args, "-r", "25", "-g", "250")
 	args = append(args, "-c:a", "libmp3lame", "-b:a", "128k", "-ar", "44100", "-ac", "2")
 	args = append(args, "-af", "loudnorm=I=-10")
@@ -384,51 +299,26 @@ func (p *Processor) createLcdH265WithLog(inputFile, outputFile string) *Transcod
 	return p.runFFmpegCommandWithLog(cmd, taskName)
 }
 
-// createLcdH265 LCD H265转码 - GPU加速版本
+// createLcdH265 LCD H265转码 - 跨平台硬件加速版本
 func (p *Processor) createLcdH265(inputFile, outputFile string) error {
-	log.Printf("创建LCD H265(GPU加速): %s -> %s", inputFile, outputFile)
+	log.Printf("创建LCD H265(硬件加速): %s -> %s", inputFile, outputFile)
 
-	// 构建命令参数
 	args := []string{}
-
-	// 添加硬件加速参数
 	args = append(args, p.getHWAccelArgs()...)
-
-	// 输入文件
 	args = append(args, "-i", inputFile)
-
-	// 视频编码参数
 	args = append(args, "-c:v", p.getVideoEncoder())
-	args = append(args, "-preset", "fast")
-
-	if p.gpuAvailable {
-		args = append(args, "-cq", "22") // GPU使用CQ模式
-	} else {
-		args = append(args, "-crf", "22") // CPU使用CRF模式
-	}
-
-	args = append(args, "-r", "25")
-	args = append(args, "-g", "250")
-
-	// 音频编码参数
-	args = append(args, "-c:a", "libmp3lame")
-	args = append(args, "-b:a", "128k")
-	args = append(args, "-ar", "44100")
-	args = append(args, "-ac", "2")
+	args = append(args, p.getPresetArgs("fast")...)
+	args = append(args, p.getQualityArgs(22)...)
+	args = append(args, "-r", "25", "-g", "250")
+	args = append(args, "-c:a", "libmp3lame", "-b:a", "128k", "-ar", "44100", "-ac", "2")
 	args = append(args, "-af", "loudnorm=I=-10")
-
-	// 输出参数
-	args = append(args, "-movflags", "+faststart")
-	args = append(args, "-f", "mp4")
-	args = append(args, "-y", outputFile)
+	args = append(args, "-movflags", "+faststart", "-f", "mp4", "-y", outputFile)
 
 	cmd := exec.Command("ffmpeg", args...)
-
 	taskName := "LCD H265(H.265+MP3)"
 	if p.gpuAvailable {
-		taskName += " [GPU加速]"
+		taskName += fmt.Sprintf(" [%s]", p.platformInfo.Platform)
 	}
-
 	return p.runFFmpegCommand(cmd, taskName)
 }
 
@@ -438,12 +328,10 @@ func (p *Processor) createH265MuteTranscodeWithLog(inputFile, outputFile string)
 	args := []string{}
 	args = append(args, p.getHWAccelArgs()...)
 	args = append(args, "-i", inputFile)
-	args = append(args, "-c:v", p.getVideoEncoder(), "-preset", "fast")
-	if p.gpuAvailable {
-		args = append(args, "-cq", "23", "-maxrate", "2867k", "-bufsize", "5734k")
-	} else {
-		args = append(args, "-b:v", "2867k")
-	}
+	args = append(args, "-c:v", p.getVideoEncoder())
+	args = append(args, p.getPresetArgs("fast")...)
+	args = append(args, p.getQualityArgs(23)...)
+	args = append(args, "-maxrate", "2867k", "-bufsize", "5734k")
 	args = append(args, "-r", "25", "-g", "250", "-an")
 	args = append(args, "-movflags", "+faststart", "-f", "mp4", "-y", outputFile)
 	cmd := exec.Command("ffmpeg", args...)
@@ -454,49 +342,26 @@ func (p *Processor) createH265MuteTranscodeWithLog(inputFile, outputFile string)
 	return p.runFFmpegCommandWithLog(cmd, taskName)
 }
 
-// createH265MuteTranscode H265静音转码 - GPU加速版本
+// createH265MuteTranscode H265静音转码 - 跨平台硬件加速版本
 func (p *Processor) createH265MuteTranscode(inputFile, outputFile string) error {
-	log.Printf("创建H265静音转码(GPU加速): %s -> %s", inputFile, outputFile)
+	log.Printf("创建H265静音转码(硬件加速): %s -> %s", inputFile, outputFile)
 
-	// 构建命令参数
 	args := []string{}
-
-	// 添加硬件加速参数
 	args = append(args, p.getHWAccelArgs()...)
-
-	// 输入文件
 	args = append(args, "-i", inputFile)
-
-	// 视频编码参数
 	args = append(args, "-c:v", p.getVideoEncoder())
-	args = append(args, "-preset", "fast")
-
-	if p.gpuAvailable {
-		// GPU模式使用CQ + 码率控制
-		args = append(args, "-cq", "23")
-		args = append(args, "-maxrate", "2867k")
-		args = append(args, "-bufsize", "5734k")
-	} else {
-		// CPU模式使用固定码率
-		args = append(args, "-b:v", "2867k")
-	}
-
-	args = append(args, "-r", "25")
-	args = append(args, "-g", "250")
-	args = append(args, "-an") // 移除音频（静音）
-
-	// 输出参数
-	args = append(args, "-movflags", "+faststart")
-	args = append(args, "-f", "mp4")
-	args = append(args, "-y", outputFile)
+	args = append(args, p.getPresetArgs("fast")...)
+	args = append(args, p.getQualityArgs(23)...)
+	args = append(args, "-maxrate", "2867k", "-bufsize", "5734k")
+	args = append(args, "-r", "25", "-g", "250")
+	args = append(args, "-an") // 移除音频
+	args = append(args, "-movflags", "+faststart", "-f", "mp4", "-y", outputFile)
 
 	cmd := exec.Command("ffmpeg", args...)
-
 	taskName := "H265静音转码"
 	if p.gpuAvailable {
-		taskName += " [GPU加速]"
+		taskName += fmt.Sprintf(" [%s]", p.platformInfo.Platform)
 	}
-
 	return p.runFFmpegCommand(cmd, taskName)
 }
 
@@ -506,12 +371,9 @@ func (p *Processor) createCustomMutePreviewWithLog(inputFile, outputFile string)
 	args := []string{}
 	args = append(args, p.getHWAccelArgs()...)
 	args = append(args, "-i", inputFile)
-	args = append(args, "-c:v", p.getVideoEncoder(), "-preset", "fast")
-	if p.gpuAvailable {
-		args = append(args, "-cq", "23")
-	} else {
-		args = append(args, "-crf", "23")
-	}
+	args = append(args, "-c:v", p.getVideoEncoder())
+	args = append(args, p.getPresetArgs("fast")...)
+	args = append(args, p.getQualityArgs(23)...)
 	args = append(args, "-r", "25", "-g", "250", "-an")
 	args = append(args, "-movflags", "+faststart", "-f", "mp4", "-y", outputFile)
 	cmd := exec.Command("ffmpeg", args...)
@@ -522,45 +384,25 @@ func (p *Processor) createCustomMutePreviewWithLog(inputFile, outputFile string)
 	return p.runFFmpegCommandWithLog(cmd, taskName)
 }
 
-// createCustomMutePreview 自定义静音预览 - GPU加速版本
+// createCustomMutePreview 自定义静音预览 - 跨平台硬件加速版本
 func (p *Processor) createCustomMutePreview(inputFile, outputFile string) error {
-	log.Printf("创建自定义静音预览(GPU加速): %s -> %s", inputFile, outputFile)
+	log.Printf("创建自定义静音预览(硬件加速): %s -> %s", inputFile, outputFile)
 
-	// 构建命令参数
 	args := []string{}
-
-	// 添加硬件加速参数
 	args = append(args, p.getHWAccelArgs()...)
-
-	// 输入文件
 	args = append(args, "-i", inputFile)
-
-	// 视频编码参数
 	args = append(args, "-c:v", p.getVideoEncoder())
-	args = append(args, "-preset", "fast")
-
-	if p.gpuAvailable {
-		args = append(args, "-cq", "23") // GPU使用CQ模式
-	} else {
-		args = append(args, "-crf", "23") // CPU使用CRF模式
-	}
-
-	args = append(args, "-r", "25")
-	args = append(args, "-g", "250")
-	args = append(args, "-an") // 移除音频（静音）
-
-	// 输出参数
-	args = append(args, "-movflags", "+faststart")
-	args = append(args, "-f", "mp4")
-	args = append(args, "-y", outputFile)
+	args = append(args, p.getPresetArgs("fast")...)
+	args = append(args, p.getQualityArgs(23)...)
+	args = append(args, "-r", "25", "-g", "250")
+	args = append(args, "-an") // 移除音频
+	args = append(args, "-movflags", "+faststart", "-f", "mp4", "-y", outputFile)
 
 	cmd := exec.Command("ffmpeg", args...)
-
 	taskName := "自定义静音预览"
 	if p.gpuAvailable {
-		taskName += " [GPU加速]"
+		taskName += fmt.Sprintf(" [%s]", p.platformInfo.Platform)
 	}
-
 	return p.runFFmpegCommand(cmd, taskName)
 }
 
@@ -568,9 +410,7 @@ func (p *Processor) createCustomMutePreview(inputFile, outputFile string) error 
 func (p *Processor) createThumbnailWithLog(inputFile, outputFile string) *TranscodeResult {
 	log.Printf("创建缩略图(GPU加速): %s -> %s", inputFile, outputFile)
 	args := []string{}
-	if p.gpuAvailable {
-		args = append(args, "-hwaccel", "cuda")
-	}
+	args = append(args, p.getHWAccelArgs()...)
 	args = append(args, "-i", inputFile, "-ss", "00:00:04", "-vframes", "1")
 	args = append(args, "-vf", "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2:black")
 	args = append(args, "-q:v", "2", "-y", outputFile)
@@ -582,34 +422,24 @@ func (p *Processor) createThumbnailWithLog(inputFile, outputFile string) *Transc
 	return p.runFFmpegCommandWithLog(cmd, taskName)
 }
 
-// createThumbnail 生成缩略图 - GPU加速版本
+// createThumbnail 生成缩略图 - 跨平台硬件加速版本
 func (p *Processor) createThumbnail(inputFile, outputFile string) error {
-	log.Printf("创建缩略图(GPU加速): %s -> %s", inputFile, outputFile)
+	log.Printf("创建缩略图(硬件加速): %s -> %s", inputFile, outputFile)
 
-	// 构建命令参数
 	args := []string{}
-
 	// 添加硬件加速参数（仅用于解码）
-	if p.gpuAvailable {
-		args = append(args, "-hwaccel", "cuda")
-	}
-
-	// 输入文件
+	args = append(args, p.getHWAccelArgs()...)
 	args = append(args, "-i", inputFile)
 	args = append(args, "-ss", "00:00:04")
 	args = append(args, "-vframes", "1")
-
-	// 缩放滤镜（缩略图通常用CPU处理更稳定）
 	args = append(args, "-vf", "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2:black")
 	args = append(args, "-q:v", "2")
 	args = append(args, "-y", outputFile)
 
 	cmd := exec.Command("ffmpeg", args...)
-
 	taskName := "缩略图生成"
 	if p.gpuAvailable {
-		taskName += " [GPU解码加速]"
+		taskName += fmt.Sprintf(" [%s解码加速]", p.platformInfo.Platform)
 	}
-
 	return p.runFFmpegCommand(cmd, taskName)
 }

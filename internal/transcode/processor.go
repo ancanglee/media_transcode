@@ -17,25 +17,29 @@ import (
 )
 
 type Processor struct {
-	s3Client     *s3.Client
-	taskManager  *task.Manager
-	tempDir      string
-	outputBucket string
-	debug        bool
-	gpuAvailable bool
+	s3Client      *s3.Client
+	taskManager   *task.Manager
+	presetManager *PresetManager
+	tempDir       string
+	outputBucket  string
+	debug         bool
+	gpuAvailable  bool
+	platformInfo  *PlatformInfo
 }
 
-func NewProcessor(s3Client *s3.Client, taskManager *task.Manager, tempDir, outputBucket string, debug bool) *Processor {
+func NewProcessor(s3Client *s3.Client, taskManager *task.Manager, presetManager *PresetManager, tempDir, outputBucket string, debug bool) *Processor {
 	processor := &Processor{
-		s3Client:     s3Client,
-		taskManager:  taskManager,
-		tempDir:      tempDir,
-		outputBucket: outputBucket,
-		debug:        debug,
+		s3Client:      s3Client,
+		taskManager:   taskManager,
+		presetManager: presetManager,
+		tempDir:       tempDir,
+		outputBucket:  outputBucket,
+		debug:         debug,
 	}
 
-	// 检测GPU可用性
-	processor.detectGPU()
+	// 检测平台和硬件加速能力
+	processor.platformInfo = DetectPlatform()
+	processor.gpuAvailable = processor.platformInfo.GPUAvailable
 
 	// 创建临时目录
 	if err := os.MkdirAll(processor.tempDir, 0755); err != nil {
@@ -43,6 +47,11 @@ func NewProcessor(s3Client *s3.Client, taskManager *task.Manager, tempDir, outpu
 	}
 
 	return processor
+}
+
+// GetPlatformInfo 获取平台信息
+func (p *Processor) GetPlatformInfo() *PlatformInfo {
+	return p.platformInfo
 }
 
 // ProcessTask 处理转码任务
@@ -170,49 +179,43 @@ func (p *Processor) ProcessTask(transcodeTask *task.TranscodeTask) error {
 	return nil
 }
 
-// detectGPU 检测GPU可用性
-func (p *Processor) detectGPU() {
-	log.Println("🔍 检测GPU环境...")
+// TestTranscode 测试转码（用于 LLM 生成的参数测试）
+func (p *Processor) TestTranscode(inputFile string, ffmpegArgs []string, outputExt string) (*TranscodeResult, error) {
+	// 生成临时输出文件
+	baseName := strings.TrimSuffix(filepath.Base(inputFile), filepath.Ext(inputFile))
+	outputFile := filepath.Join(p.tempDir, fmt.Sprintf("%s_test_%d.%s", baseName, time.Now().Unix(), outputExt))
 
-	// 检查nvidia-smi
-	cmd := exec.Command("nvidia-smi", "--query-gpu=name,driver_version", "--format=csv,noheader")
-	output, err := cmd.Output()
-	if err != nil {
-		log.Printf("⚠️  GPU不可用，将使用CPU模式: %v", err)
-		p.gpuAvailable = false
-		return
+	// 构建完整命令
+	args := []string{}
+	args = append(args, p.platformInfo.HWAccelArgs...)
+	args = append(args, "-i", inputFile)
+	args = append(args, ffmpegArgs...)
+	args = append(args, "-y", outputFile)
+
+	cmd := exec.Command("ffmpeg", args...)
+	result := p.runFFmpegCommandWithLog(cmd, "测试转码")
+
+	// 清理测试输出文件
+	if result.Error == nil {
+		os.Remove(outputFile)
 	}
 
-	gpuInfo := strings.TrimSpace(string(output))
-	log.Printf("✅ 检测到GPU: %s", gpuInfo)
+	return result, result.Error
+}
 
-	// 检查FFmpeg NVENC支持
-	cmd = exec.Command("ffmpeg", "-encoders")
-	output, err = cmd.Output()
-	if err != nil {
-		log.Printf("⚠️  无法检查FFmpeg编码器，使用CPU模式: %v", err)
-		p.gpuAvailable = false
-		return
-	}
+// ProcessCustomPreset 处理自定义预设转码
+func (p *Processor) ProcessCustomPreset(inputFile, outputFile string, preset *TranscodePreset) error {
+	log.Printf("🔄 使用自定义预设转码: %s -> %s (预设: %s)", inputFile, outputFile, preset.Name)
 
-	encoderOutput := string(output)
-	if strings.Contains(encoderOutput, "hevc_nvenc") {
-		log.Printf("✅ FFmpeg支持HEVC NVENC硬件编码")
+	// 构建命令参数
+	args := []string{}
+	args = append(args, p.platformInfo.HWAccelArgs...)
+	args = append(args, "-i", inputFile)
+	args = append(args, preset.FFmpegArgs...)
+	args = append(args, "-y", outputFile)
 
-		// 测试NVENC是否真正可用
-		testCmd := exec.Command("ffmpeg", "-f", "lavfi", "-i", "testsrc=duration=1:size=320x240:rate=1",
-			"-c:v", "hevc_nvenc", "-preset", "fast", "-f", "null", "-")
-		if err := testCmd.Run(); err != nil {
-			log.Printf("⚠️  NVENC测试失败，使用CPU模式: %v", err)
-			p.gpuAvailable = false
-		} else {
-			log.Printf("✅ NVENC功能测试通过")
-			p.gpuAvailable = true
-		}
-	} else {
-		log.Printf("⚠️  FFmpeg不支持HEVC NVENC，使用CPU模式")
-		p.gpuAvailable = false
-	}
+	cmd := exec.Command("ffmpeg", args...)
+	return p.runFFmpegCommand(cmd, fmt.Sprintf("自定义预设: %s", preset.Name))
 }
 
 // downloadFromS3 从S3下载文件
