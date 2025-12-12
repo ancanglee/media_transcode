@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -149,12 +150,51 @@ func (pm *PresetManager) SavePreset(preset *TranscodePreset) error {
 // GetPreset 获取预设
 func (pm *PresetManager) GetPreset(presetID string) (*TranscodePreset, error) {
 	pm.mu.RLock()
-	defer pm.mu.RUnlock()
+	preset, ok := pm.presets[presetID]
+	pm.mu.RUnlock()
 
-	if preset, ok := pm.presets[presetID]; ok {
+	if ok {
 		return preset, nil
 	}
+
+	// 如果是自定义预设但不在内存中，尝试从 DynamoDB 加载
+	if strings.HasPrefix(presetID, "custom_") {
+		if loadedPreset, err := pm.loadPresetFromDynamoDB(presetID); err == nil {
+			return loadedPreset, nil
+		}
+	}
+
 	return nil, fmt.Errorf("预设不存在: %s", presetID)
+}
+
+// loadPresetFromDynamoDB 从 DynamoDB 加载单个预设
+func (pm *PresetManager) loadPresetFromDynamoDB(presetID string) (*TranscodePreset, error) {
+	result, err := pm.dynamoClient.GetItem(context.TODO(), &dynamodb.GetItemInput{
+		TableName: aws.String(pm.tableName + "-presets"),
+		Key: map[string]types.AttributeValue{
+			"preset_id": &types.AttributeValueMemberS{Value: presetID},
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("从 DynamoDB 获取预设失败: %v", err)
+	}
+
+	if result.Item == nil {
+		return nil, fmt.Errorf("预设不存在: %s", presetID)
+	}
+
+	var preset TranscodePreset
+	if err := attributevalue.UnmarshalMap(result.Item, &preset); err != nil {
+		return nil, fmt.Errorf("反序列化预设失败: %v", err)
+	}
+
+	// 缓存到内存
+	pm.mu.Lock()
+	pm.presets[presetID] = &preset
+	pm.mu.Unlock()
+
+	log.Printf("✅ 从 DynamoDB 动态加载预设: %s (%s)", preset.Name, presetID)
+	return &preset, nil
 }
 
 // ListPresets 列出所有预设

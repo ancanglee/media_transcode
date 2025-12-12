@@ -185,11 +185,31 @@ func (p *Processor) TestTranscode(inputFile string, ffmpegArgs []string, outputE
 	baseName := strings.TrimSuffix(filepath.Base(inputFile), filepath.Ext(inputFile))
 	outputFile := filepath.Join(p.tempDir, fmt.Sprintf("%s_test_%d.%s", baseName, time.Now().Unix(), outputExt))
 
+	// 分离输入参数（需要放在 -i 之前）和输出参数（放在 -i 之后）
+	inputArgs, outputArgs := separateFFmpegArgs(ffmpegArgs)
+
 	// 构建完整命令
 	args := []string{}
-	args = append(args, p.platformInfo.HWAccelArgs...)
+
+	// 检查用户参数是否已包含硬件加速参数，避免重复添加
+	hasHWAccel := false
+	for _, arg := range inputArgs {
+		if arg == "-hwaccel" {
+			hasHWAccel = true
+			break
+		}
+	}
+
+	// 只有当用户参数不包含硬件加速时才添加平台默认的
+	if !hasHWAccel && p.platformInfo != nil {
+		args = append(args, p.platformInfo.HWAccelArgs...)
+	}
+
+	// 添加用户的输入参数（如 -hwaccel）
+	args = append(args, inputArgs...)
 	args = append(args, "-i", inputFile)
-	args = append(args, ffmpegArgs...)
+	// 添加用户的输出参数
+	args = append(args, outputArgs...)
 	args = append(args, "-y", outputFile)
 
 	cmd := exec.Command("ffmpeg", args...)
@@ -203,15 +223,60 @@ func (p *Processor) TestTranscode(inputFile string, ffmpegArgs []string, outputE
 	return result, result.Error
 }
 
+// separateFFmpegArgs 分离FFmpeg参数为输入参数和输出参数
+// 输入参数（需要放在 -i 之前）：-hwaccel, -hwaccel_device, -hwaccel_output_format
+// 其他参数都是输出参数
+func separateFFmpegArgs(args []string) (inputArgs, outputArgs []string) {
+	inputOptions := map[string]bool{
+		"-hwaccel":               true,
+		"-hwaccel_device":        true,
+		"-hwaccel_output_format": true,
+	}
+
+	i := 0
+	for i < len(args) {
+		arg := args[i]
+		if inputOptions[arg] {
+			// 这是一个输入选项，添加选项和它的值
+			inputArgs = append(inputArgs, arg)
+			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+				inputArgs = append(inputArgs, args[i+1])
+				i++
+			}
+		} else {
+			outputArgs = append(outputArgs, arg)
+		}
+		i++
+	}
+	return
+}
+
 // ProcessCustomPreset 处理自定义预设转码
 func (p *Processor) ProcessCustomPreset(inputFile, outputFile string, preset *TranscodePreset) error {
 	log.Printf("🔄 使用自定义预设转码: %s -> %s (预设: %s)", inputFile, outputFile, preset.Name)
 
+	// 分离输入参数和输出参数
+	inputArgs, outputArgs := separateFFmpegArgs(preset.FFmpegArgs)
+
 	// 构建命令参数
 	args := []string{}
-	args = append(args, p.platformInfo.HWAccelArgs...)
+
+	// 检查预设参数是否已包含硬件加速参数，避免重复添加
+	hasHWAccel := false
+	for _, arg := range inputArgs {
+		if arg == "-hwaccel" {
+			hasHWAccel = true
+			break
+		}
+	}
+
+	if !hasHWAccel && p.platformInfo != nil {
+		args = append(args, p.platformInfo.HWAccelArgs...)
+	}
+
+	args = append(args, inputArgs...)
 	args = append(args, "-i", inputFile)
-	args = append(args, preset.FFmpegArgs...)
+	args = append(args, outputArgs...)
 	args = append(args, "-y", outputFile)
 
 	cmd := exec.Command("ffmpeg", args...)
@@ -256,13 +321,18 @@ func (p *Processor) generateOutputFile(inputFile, transcodeType string) (string,
 	baseName := strings.TrimSuffix(filepath.Base(inputFile), filepath.Ext(inputFile))
 	timestamp := time.Now().Unix()
 
-	var outputFile string
+	// 确定输出扩展名
+	outputExt := "mp4" // 默认扩展名
 	if transcodeType == "thumbnail" {
-		outputFile = filepath.Join(p.tempDir, fmt.Sprintf("%s_%s_%d.jpg", baseName, transcodeType, timestamp))
-	} else {
-		outputFile = filepath.Join(p.tempDir, fmt.Sprintf("%s_%s_%d.mp4", baseName, transcodeType, timestamp))
+		outputExt = "jpg"
+	} else if p.presetManager != nil {
+		// 尝试从自定义预设获取输出扩展名
+		if preset, err := p.presetManager.GetPreset(transcodeType); err == nil && preset.OutputExt != "" {
+			outputExt = preset.OutputExt
+		}
 	}
 
+	outputFile := filepath.Join(p.tempDir, fmt.Sprintf("%s_%s_%d.%s", baseName, transcodeType, timestamp, outputExt))
 	return outputFile, nil
 }
 
@@ -309,8 +379,46 @@ func (p *Processor) doTranscodeWithLog(inputFile, outputFile, transcodeType stri
 	case "thumbnail":
 		return p.createThumbnailWithLog(inputFile, outputFile)
 	default:
+		// 尝试作为自定义预设处理
+		if p.presetManager != nil {
+			if preset, err := p.presetManager.GetPreset(transcodeType); err == nil {
+				return p.processCustomPresetWithLog(inputFile, outputFile, preset)
+			}
+		}
 		return &TranscodeResult{Error: fmt.Errorf("未知的转码类型: %s", transcodeType)}
 	}
+}
+
+// processCustomPresetWithLog 处理自定义预设转码并返回详细日志
+func (p *Processor) processCustomPresetWithLog(inputFile, outputFile string, preset *TranscodePreset) *TranscodeResult {
+	log.Printf("🔄 使用自定义预设转码: %s -> %s (预设: %s)", inputFile, outputFile, preset.Name)
+
+	// 分离输入参数和输出参数
+	inputArgs, outputArgs := separateFFmpegArgs(preset.FFmpegArgs)
+
+	// 构建命令参数
+	args := []string{}
+
+	// 检查预设参数是否已包含硬件加速参数，避免重复添加
+	hasHWAccel := false
+	for _, arg := range inputArgs {
+		if arg == "-hwaccel" {
+			hasHWAccel = true
+			break
+		}
+	}
+
+	if !hasHWAccel && p.platformInfo != nil {
+		args = append(args, p.platformInfo.HWAccelArgs...)
+	}
+
+	args = append(args, inputArgs...)
+	args = append(args, "-i", inputFile)
+	args = append(args, outputArgs...)
+	args = append(args, "-y", outputFile)
+
+	cmd := exec.Command("ffmpeg", args...)
+	return p.runFFmpegCommandWithLog(cmd, fmt.Sprintf("自定义预设: %s", preset.Name))
 }
 
 // uploadToS3 上传文件到S3

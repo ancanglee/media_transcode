@@ -832,3 +832,121 @@ body {
         max-width: 100%;
     }
 }
+
+/* ==================== 自动测试结果样式 ==================== */
+
+.test-result-box {
+    margin-top: 24px;
+    padding: 20px;
+    border-radius: 12px;
+    background: #f8fafc;
+    border: 1px solid var(--border-color);
+}
+
+.test-result-box h4 {
+    margin-bottom: 12px;
+    font-size: 1.1rem;
+}
+
+.test-status {
+    margin-bottom: 16px;
+}
+
+.test-status .hint {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    margin-left: 8px;
+}
+
+.test-status .error-message {
+    font-size: 0.9rem;
+    padding: 8px 12px;
+    background: #fef2f2;
+    border-radius: 6px;
+    border-left: 3px solid var(--danger-color);
+}
+
+.test-details {
+    margin-top: 16px;
+}
+
+.test-details .code-block {
+    font-size: 0.8rem;
+    max-height: 150px;
+    overflow-y: auto;
+}
+
+/* 复选框样式优化 */
+.checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    padding: 8px 0;
+}
+
+.checkbox-label input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+}
+
+/* 保存按钮高亮 */
+#savePresetBtn {
+    transition: all 0.3s ease;
+}
+
+#savePresetBtn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
+}
+
+
+/* ==================== 测试模态框增强样式 ==================== */
+
+.modal-large .modal-content {
+    max-width: 700px;
+}
+
+.fix-hint, .success-hint {
+    padding: 12px 16px;
+    border-radius: 8px;
+    margin-bottom: 12px;
+}
+
+.fix-hint {
+    background: #fef3c7;
+    border: 1px solid #f59e0b;
+    color: #92400e;
+}
+
+.fix-hint p, .success-hint p {
+    margin: 0;
+    font-size: 0.95rem;
+}
+
+.success-hint {
+    background: #d1fae5;
+    border: 1px solid #10b981;
+    color: #065f46;
+}
+
+.btn-warning {
+    background: linear-gradient(135deg, #f59e0b, #d97706);
+    color: white;
+    border: none;
+}
+
+.btn-warning:hover {
+    background: linear-gradient(135deg, #d97706, #b45309);
+}
+
+#currentTestArgs {
+    background: #f3f4f6;
+    color: #374151;
+    font-size: 0.85rem;
+    padding: 12px;
+    border-radius: 6px;
+    white-space: pre-wrap;
+    word-break: break-all;
+}

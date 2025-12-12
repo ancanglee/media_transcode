@@ -124,6 +124,12 @@
                         <label for="aiInputFormat">输入格式 (可选):</label>
                         <input type="text" id="aiInputFormat" placeholder="例如: mp4, mov, avi">
                     </div>
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="aiAutoTest" checked>
+                            🧪 自动测试参数（使用示例视频验证参数有效性，失败时自动修正）
+                        </label>
+                    </div>
                     <div class="form-actions">
                         <button type="submit" class="btn btn-primary btn-large" id="generateBtn">🚀 生成参数</button>
                     </div>
@@ -161,9 +167,25 @@
                         <div id="resultExplanation" class="explanation-box"></div>
                     </div>
 
+                    <!-- 自动测试结果 -->
+                    <div id="autoTestResult" class="test-result-box" style="display:none;">
+                        <h4 id="autoTestTitle">🧪 自动测试结果</h4>
+                        <div class="test-status" id="autoTestStatus"></div>
+                        <div class="test-details">
+                            <div class="form-group">
+                                <label>执行命令:</label>
+                                <pre id="autoTestCommand" class="code-block"></pre>
+                            </div>
+                            <div class="form-group" id="autoTestOutputGroup">
+                                <label>FFmpeg 输出:</label>
+                                <pre id="autoTestOutput" class="code-block" style="max-height:200px;overflow-y:auto;"></pre>
+                            </div>
+                        </div>
+                    </div>
+
                     <div class="form-actions">
-                        <button class="btn btn-secondary" onclick="testFFmpegParams()">🧪 测试参数</button>
-                        <button class="btn btn-primary" onclick="saveAsPreset()">💾 保存为预设</button>
+                        <button class="btn btn-secondary" onclick="testFFmpegParams()">🧪 手动测试</button>
+                        <button class="btn btn-primary" id="savePresetBtn" onclick="saveAsPreset()">💾 确认保存为预设</button>
                     </div>
                 </div>
             </div>
@@ -303,7 +325,7 @@
 
         <!-- 测试转码模态框 -->
         <div class="modal" id="testModal">
-            <div class="modal-content">
+            <div class="modal-content modal-large">
                 <div class="modal-header">
                     <h3>🧪 测试转码参数</h3>
                     <button class="modal-close" onclick="closeTestModal()">&times;</button>
@@ -313,12 +335,40 @@
                         <label for="testInputFile">本地测试文件路径:</label>
                         <input type="text" id="testInputFile" placeholder="例如: /tmp/test.mp4">
                     </div>
-                    <div class="form-actions">
-                        <button class="btn btn-primary" onclick="runTest()">▶️ 运行测试</button>
+                    
+                    <!-- 当前参数显示 -->
+                    <div class="form-group">
+                        <label>当前 FFmpeg 参数:</label>
+                        <pre id="currentTestArgs" class="code-block" style="font-size:0.85rem;"></pre>
                     </div>
+                    
+                    <div class="form-actions">
+                        <button class="btn btn-primary" id="runTestBtn" onclick="runTest()">▶️ 运行测试</button>
+                    </div>
+                    
                     <div id="testResult" style="display:none;">
-                        <h4>测试结果:</h4>
-                        <pre id="testOutput" class="code-block"></pre>
+                        <h4 id="testResultTitle">测试结果:</h4>
+                        <pre id="testOutput" class="code-block" style="max-height:200px;overflow-y:auto;"></pre>
+                        
+                        <!-- 测试失败时显示的修正选项 -->
+                        <div id="testFixSection" style="display:none;margin-top:16px;">
+                            <div class="fix-hint">
+                                <p>💡 测试失败？让 AI 帮你分析错误并修正参数</p>
+                            </div>
+                            <div class="form-actions">
+                                <button class="btn btn-warning" id="fixParamsBtn" onclick="fixFailedParams()">🔧 AI 修正参数</button>
+                            </div>
+                        </div>
+                        
+                        <!-- 测试成功时显示的保存选项 -->
+                        <div id="testSuccessSection" style="display:none;margin-top:16px;">
+                            <div class="success-hint">
+                                <p>✅ 测试通过！你可以保存这个参数配置为预设</p>
+                            </div>
+                            <div class="form-actions">
+                                <button class="btn btn-primary" onclick="closeTestModal();saveAsPreset();">💾 保存为预设</button>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>

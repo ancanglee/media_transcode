@@ -122,16 +122,24 @@ async function generateFFmpegParams(event) {
     event.preventDefault();
     const requirement = document.getElementById('aiRequirement').value.trim();
     const inputFormat = document.getElementById('aiInputFormat').value.trim();
+    const autoTest = document.getElementById('aiAutoTest').checked;
     const btn = document.getElementById('generateBtn');
     
     btn.disabled = true;
-    btn.textContent = '⏳ 生成中...';
+    if (autoTest) {
+        btn.textContent = '⏳ 生成并测试中...';
+    } else {
+        btn.textContent = '⏳ 生成中...';
+    }
+    
+    // 隐藏之前的测试结果
+    document.getElementById('autoTestResult').style.display = 'none';
     
     try {
         const res = await fetch(`${API_BASE}/llm/generate`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ requirement, input_format: inputFormat })
+            body: JSON.stringify({ requirement, input_format: inputFormat, auto_test: autoTest })
         });
         const data = await res.json();
         
@@ -141,13 +149,52 @@ async function generateFFmpegParams(event) {
         
         currentAIResult = data;
         displayAIResult(data);
-        showToast('参数生成成功', 'success');
+        
+        // 显示自动测试结果
+        if (autoTest && data.test_result) {
+            displayAutoTestResult(data.test_result);
+        }
+        
+        if (data.test_result && data.test_result.success) {
+            showToast('参数生成并测试成功！可以保存为预设', 'success');
+        } else if (data.test_result && !data.test_result.success) {
+            showToast('参数生成成功，但测试失败，请检查或手动调整', 'error');
+        } else {
+            showToast('参数生成成功', 'success');
+        }
     } catch (e) {
         showToast(`生成失败: ${e.message}`, 'error');
     } finally {
         btn.disabled = false;
         btn.textContent = '🚀 生成参数';
     }
+}
+
+// 显示自动测试结果
+function displayAutoTestResult(testResult) {
+    const container = document.getElementById('autoTestResult');
+    const title = document.getElementById('autoTestTitle');
+    const status = document.getElementById('autoTestStatus');
+    const command = document.getElementById('autoTestCommand');
+    const output = document.getElementById('autoTestOutput');
+    
+    container.style.display = 'block';
+    
+    if (testResult.success) {
+        title.textContent = '✅ 自动测试通过';
+        title.style.color = '#10b981';
+        status.innerHTML = `<span class="status-badge status-completed">测试成功</span>` +
+            (testResult.retries > 0 ? ` <span class="hint">（经过 ${testResult.retries} 次修正）</span>` : '');
+    } else {
+        title.textContent = '❌ 自动测试失败';
+        title.style.color = '#ef4444';
+        status.innerHTML = `<span class="status-badge status-failed">测试失败</span>` +
+            ` <span class="hint">（已尝试 ${testResult.retries + 1} 次）</span>` +
+            `<div class="error-message" style="margin-top:8px;color:#ef4444;">${testResult.error || '未知错误'}</div>`;
+    }
+    
+    command.textContent = testResult.command || '无';
+    output.textContent = testResult.output || '无输出';
 }
 
 // 显示 AI 生成结果
@@ -161,12 +208,23 @@ function displayAIResult(data) {
     document.getElementById('aiResult').style.display = 'block';
 }
 
+// 最后一次测试的错误信息（用于修正）
+let lastTestError = null;
+
 // 测试 FFmpeg 参数
 function testFFmpegParams() {
     if (!currentAIResult) {
         showToast('请先生成参数', 'error');
         return;
     }
+    // 显示当前参数
+    document.getElementById('currentTestArgs').textContent = currentAIResult.ffmpeg_args.join(' ');
+    // 重置测试结果区域
+    document.getElementById('testResult').style.display = 'none';
+    document.getElementById('testFixSection').style.display = 'none';
+    document.getElementById('testSuccessSection').style.display = 'none';
+    lastTestError = null;
+    
     document.getElementById('testModal').classList.add('active');
 }
 
@@ -181,6 +239,10 @@ async function runTest() {
         showToast('请输入测试文件路径', 'error');
         return;
     }
+    
+    const btn = document.getElementById('runTestBtn');
+    btn.disabled = true;
+    btn.textContent = '⏳ 测试中...';
     
     try {
         const res = await fetch(`${API_BASE}/llm/test`, {
@@ -199,12 +261,94 @@ async function runTest() {
             `命令: ${data.command}\n\n输出:\n${data.output || data.error || '无输出'}`;
         
         if (res.ok) {
-            showToast('测试成功', 'success');
+            // 测试成功
+            document.getElementById('testResultTitle').textContent = '✅ 测试成功';
+            document.getElementById('testResultTitle').style.color = '#10b981';
+            document.getElementById('testFixSection').style.display = 'none';
+            document.getElementById('testSuccessSection').style.display = 'block';
+            showToast('测试成功！可以保存为预设', 'success');
+            lastTestError = null;
         } else {
-            showToast('测试失败', 'error');
+            // 测试失败
+            document.getElementById('testResultTitle').textContent = '❌ 测试失败';
+            document.getElementById('testResultTitle').style.color = '#ef4444';
+            document.getElementById('testFixSection').style.display = 'block';
+            document.getElementById('testSuccessSection').style.display = 'none';
+            showToast('测试失败，可以让 AI 修正参数', 'error');
+            // 保存错误信息用于修正
+            lastTestError = {
+                error: data.error || '未知错误',
+                output: data.output || '',
+                command: data.command || ''
+            };
         }
     } catch (e) {
         showToast(`测试失败: ${e.message}`, 'error');
+        document.getElementById('testResult').style.display = 'block';
+        document.getElementById('testResultTitle').textContent = '❌ 测试失败';
+        document.getElementById('testResultTitle').style.color = '#ef4444';
+        document.getElementById('testOutput').textContent = `错误: ${e.message}`;
+        document.getElementById('testFixSection').style.display = 'block';
+        document.getElementById('testSuccessSection').style.display = 'none';
+        lastTestError = { error: e.message, output: '', command: '' };
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '▶️ 运行测试';
+    }
+}
+
+// 让 AI 修正失败的参数
+async function fixFailedParams() {
+    if (!currentAIResult || !lastTestError) {
+        showToast('没有可修正的错误信息', 'error');
+        return;
+    }
+    
+    const btn = document.getElementById('fixParamsBtn');
+    btn.disabled = true;
+    btn.textContent = '⏳ AI 分析修正中...';
+    
+    try {
+        const res = await fetch(`${API_BASE}/llm/fix`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                requirement: document.getElementById('aiRequirement').value.trim(),
+                input_format: document.getElementById('aiInputFormat').value.trim(),
+                failed_args: currentAIResult.ffmpeg_args,
+                output_ext: currentAIResult.output_ext,
+                error_message: lastTestError.error,
+                ffmpeg_output: lastTestError.output
+            })
+        });
+        const data = await res.json();
+        
+        if (!res.ok) {
+            throw new Error(data.error || '修正失败');
+        }
+        
+        // 更新当前结果
+        currentAIResult.ffmpeg_args = data.ffmpeg_args;
+        currentAIResult.explanation = data.explanation;
+        if (data.output_ext) {
+            currentAIResult.output_ext = data.output_ext;
+        }
+        
+        // 更新显示
+        document.getElementById('currentTestArgs').textContent = data.ffmpeg_args.join(' ');
+        document.getElementById('resultArgs').textContent = data.ffmpeg_args.join(' ');
+        document.getElementById('resultExplanation').textContent = data.explanation;
+        
+        // 隐藏修正区域，提示用户重新测试
+        document.getElementById('testFixSection').style.display = 'none';
+        document.getElementById('testResult').style.display = 'none';
+        
+        showToast('参数已修正，请重新测试', 'success');
+    } catch (e) {
+        showToast(`修正失败: ${e.message}`, 'error');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '🔧 AI 修正参数';
     }
 }
 

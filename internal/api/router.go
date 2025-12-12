@@ -57,6 +57,7 @@ func SetupRouter(handlers *Handlers, llmHandlers *LLMHandlers, debug bool) *gin.
 		{
 			llm.POST("/generate", llmHandlers.GenerateFFmpegParams)
 			llm.POST("/test", llmHandlers.TestFFmpegParams)
+			llm.POST("/fix", llmHandlers.FixFFmpegParams)
 		}
 
 		// 预设管理
