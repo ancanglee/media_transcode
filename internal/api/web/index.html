@@ -3,16 +3,22 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GPU视频转码管理系统</title>
+    <title>智能媒体转码系统</title>
     <link rel="stylesheet" href="/static/style.css?v=20251211">
 </head>
 <body>
     <div class="container">
         <header class="header">
-            <h1>🎬 GPU视频转码管理系统</h1>
-            <div class="health-status" id="healthStatus">
-                <span class="status-dot"></span>
-                <span class="status-text">检查中...</span>
+            <h1>🎬 智能媒体转码系统</h1>
+            <div class="header-right">
+                <div class="health-status" id="healthStatus">
+                    <span class="status-dot"></span>
+                    <span class="status-text">检查中...</span>
+                </div>
+                <div class="user-menu" id="userMenu">
+                    <span class="user-name" id="currentUser">-</span>
+                    <button class="btn btn-secondary btn-small" onclick="logout()">退出</button>
+                </div>
             </div>
         </header>
 
@@ -22,6 +28,7 @@
             <button class="tab-btn" data-tab="task-queue">📋 任务队列管理</button>
             <button class="tab-btn" data-tab="add-task">➕ 添加任务</button>
             <button class="tab-btn" data-tab="presets">⚙️ 预设管理</button>
+            <button class="tab-btn admin-only" data-tab="users">👥 用户管理</button>
         </nav>
 
         <!-- 仪表盘 -->
@@ -308,6 +315,84 @@
                         </thead>
                         <tbody></tbody>
                     </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- 用户管理 -->
+        <div class="tab-content" id="users">
+            <div class="section">
+                <div class="section-header">
+                    <h2>👥 用户管理</h2>
+                    <button class="btn btn-primary" onclick="showAddUserModal()">➕ 添加用户</button>
+                </div>
+                <div class="table-container">
+                    <table class="data-table" id="usersTable">
+                        <thead>
+                            <tr>
+                                <th>用户名</th>
+                                <th>角色</th>
+                                <th>创建时间</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- 添加用户模态框 -->
+        <div class="modal" id="addUserModal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>➕ 添加用户</h3>
+                    <button class="modal-close" onclick="closeAddUserModal()">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label for="newUsername">用户名:</label>
+                        <input type="text" id="newUsername" required placeholder="请输入用户名">
+                    </div>
+                    <div class="form-group">
+                        <label for="newPassword">密码:</label>
+                        <input type="password" id="newPassword" required placeholder="请输入密码">
+                    </div>
+                    <div class="form-group">
+                        <label for="newRole">角色:</label>
+                        <select id="newRole">
+                            <option value="user">普通用户</option>
+                            <option value="admin">管理员</option>
+                        </select>
+                    </div>
+                    <div class="form-actions">
+                        <button class="btn btn-primary" onclick="createUser()">创建</button>
+                        <button class="btn btn-secondary" onclick="closeAddUserModal()">取消</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 修改密码模态框 -->
+        <div class="modal" id="changePasswordModal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>🔑 修改密码</h3>
+                    <button class="modal-close" onclick="closeChangePasswordModal()">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label>用户名:</label>
+                        <input type="text" id="changePasswordUsername" readonly>
+                    </div>
+                    <div class="form-group">
+                        <label for="changeNewPassword">新密码:</label>
+                        <input type="password" id="changeNewPassword" required placeholder="请输入新密码">
+                    </div>
+                    <div class="form-actions">
+                        <button class="btn btn-primary" onclick="changeUserPassword()">确认修改</button>
+                        <button class="btn btn-secondary" onclick="closeChangePasswordModal()">取消</button>
+                    </div>
                 </div>
             </div>
         </div>

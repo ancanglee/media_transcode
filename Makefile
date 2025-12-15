@@ -1,11 +1,11 @@
-# GPU视频转码系统 Makefile
+# 智能媒体转码系统 Makefile
 # 支持 macOS (Apple Silicon VideoToolbox) 和 Linux (NVIDIA NVENC)
 
 .PHONY: help build build-linux build-macos clean deps start-api start-gpu start-all stop-all stop-api stop-gpu status logs check-platform
 
 # 默认目标
 help:
-	@echo "GPU视频转码系统 - 可用命令:"
+	@echo "智能媒体转码系统 - 可用命令:"
 	@echo ""
 	@echo "  build         - 编译所有组件 (当前平台)"
 	@echo "  build-linux   - 交叉编译为 Linux (用于 NVIDIA GPU 服务器)"

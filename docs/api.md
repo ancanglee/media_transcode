@@ -1,13 +1,45 @@
-# GPU视频转码系统 - API接口说明
+# 智能媒体转码系统 - API接口说明
 
 ## 基础信息
 
 - 基础URL: `http://your-server:9999`
 - 内容类型: `application/json`
 
+## 认证方式
+
+除健康检查和登录接口外，所有 API 都需要认证。支持两种认证方式：
+
+### 方式一：API Key（推荐用于脚本/外部系统）
+
+在请求头中添加 `X-API-Key`：
+
+```bash
+curl http://localhost:9999/api/tasks \
+  -H "X-API-Key: vt_xxxxxxxxxxxxxxxxxxxx"
+```
+
+API Key 在服务启动时自动生成并打印在日志中，也可在 `config.env` 中固定配置。
+
+### 方式二：JWT Token（用于前端登录）
+
+先登录获取 Token，然后在请求头中添加 `Authorization: Bearer <token>`：
+
+```bash
+# 1. 登录获取 token
+curl -X POST http://localhost:9999/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"admin"}'
+
+# 2. 使用 token 调用 API
+curl http://localhost:9999/api/tasks \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIs..."
+```
+
+详细认证说明请参考 [authentication.md](authentication.md)
+
 ---
 
-## 健康检查
+## 健康检查（无需认证）
 
 ### GET /api/health
 
@@ -49,9 +81,10 @@
 | input_key | string | 是 | S3文件路径 |
 | transcode_types | array | 是 | 转码类型列表 |
 
-**请求示例:**
+**请求示例（使用 API Key）:**
 ```bash
 curl -X POST http://localhost:9999/api/queue/add \
+  -H "X-API-Key: vt_xxxxxxxxxxxxxxxxxxxx" \
   -H "Content-Type: application/json" \
   -d '{
     "input_bucket": "my-input-bucket",
@@ -277,5 +310,7 @@ curl "http://localhost:9999/api/llm/presets"
 常见HTTP状态码：
 - `200` - 成功
 - `400` - 请求参数错误
+- `401` - 未认证（缺少或无效的认证信息）
+- `403` - 无权限（需要管理员权限）
 - `404` - 资源不存在
 - `500` - 服务器内部错误

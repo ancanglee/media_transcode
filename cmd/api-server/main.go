@@ -27,6 +27,7 @@ import (
 	"enhanced_video_transcoder/internal/queue"
 	"enhanced_video_transcoder/internal/task"
 	"enhanced_video_transcoder/internal/transcode"
+	"enhanced_video_transcoder/internal/user"
 )
 
 func main() {
@@ -72,6 +73,12 @@ func main() {
 	queueManager := queue.NewManager(sqsClient, cfg.SQSQueueURL)
 	taskManager := task.NewManager(dynamoClient, cfg.DynamoDBTable)
 	presetManager := transcode.NewPresetManager(dynamoClient, cfg.DynamoDBTable)
+	userManager := user.NewManager(dynamoClient, cfg.UserTable, cfg.JWTSecret)
+
+	// 初始化默认管理员账户
+	if err := userManager.InitDefaultAdmin(); err != nil {
+		log.Printf("⚠️ 初始化默认管理员失败: %v", err)
+	}
 
 	// 加载自定义预设
 	if err := presetManager.LoadCustomPresets(); err != nil {
@@ -87,9 +94,10 @@ func main() {
 	// 创建API处理器
 	handlers := api.NewHandlers(queueManager, taskManager, cfg.InputBucket, cfg.OutputBucket)
 	llmHandlers := api.NewLLMHandlers(llmClient, processor, presetManager)
+	authHandlers := api.NewAuthHandlers(userManager, cfg.APIKey)
 
 	// 设置路由
-	router := api.SetupRouter(handlers, llmHandlers, cfg.Debug)
+	router := api.SetupRouter(handlers, llmHandlers, authHandlers, cfg.Debug)
 
 	// 启动服务器
 	addr := fmt.Sprintf("%s:%s", cfg.APIHost, cfg.APIPort)
@@ -99,6 +107,8 @@ func main() {
 	log.Printf("🪣 输出桶: %s", cfg.OutputBucket)
 	log.Printf("📋 队列URL: %s", cfg.SQSQueueURL)
 	log.Printf("🗄️  DynamoDB表: %s", cfg.DynamoDBTable)
+	log.Printf("👤 用户表: %s", cfg.UserTable)
+	log.Printf("🔑 API Key: %s", cfg.APIKey)
 	log.Printf("🤖 Bedrock区域: %s", bedrockRegion)
 	log.Printf("🖥️  平台: %s (GPU: %v)", processor.GetPlatformInfo().Platform, processor.GetPlatformInfo().GPUAvailable)
 

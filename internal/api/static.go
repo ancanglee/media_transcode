@@ -32,6 +32,20 @@ func SetupStaticRoutes(router *gin.Engine) {
 		c.Redirect(http.StatusMovedPermanently, "/admin")
 	})
 
+	// 登录页面
+	router.GET("/login", func(c *gin.Context) {
+		c.Header("Content-Type", "text/html; charset=utf-8")
+		c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
+		c.Header("Pragma", "no-cache")
+		c.Header("Expires", "0")
+		data, err := webFS.ReadFile("web/login.html")
+		if err != nil {
+			c.String(http.StatusInternalServerError, "无法加载登录页面")
+			return
+		}
+		c.Data(http.StatusOK, "text/html; charset=utf-8", data)
+	})
+
 	// 管理界面
 	router.GET("/admin", func(c *gin.Context) {
 		c.Header("Content-Type", "text/html; charset=utf-8")

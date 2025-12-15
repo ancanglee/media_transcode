@@ -20,8 +20,77 @@ let systemConfig = {
 // AI 生成结果缓存
 let currentAIResult = null;
 
+// 当前用户信息
+let currentUser = null;
+
+// ==================== 认证相关 ====================
+
+// 获取认证头
+function getAuthHeaders() {
+    const token = localStorage.getItem('auth_token');
+    return {
+        'Content-Type': 'application/json',
+        'Authorization': token ? `Bearer ${token}` : ''
+    };
+}
+
+// 带认证的 fetch
+async function authFetch(url, options = {}) {
+    const headers = getAuthHeaders();
+    options.headers = { ...headers, ...options.headers };
+    
+    const res = await fetch(url, options);
+    
+    // 如果返回401，跳转到登录页
+    if (res.status === 401) {
+        localStorage.removeItem('auth_token');
+        localStorage.removeItem('auth_user');
+        window.location.href = '/login';
+        return null;
+    }
+    
+    return res;
+}
+
+// 检查登录状态
+function checkAuth() {
+    const token = localStorage.getItem('auth_token');
+    const userStr = localStorage.getItem('auth_user');
+    
+    if (!token || !userStr) {
+        window.location.href = '/login';
+        return false;
+    }
+    
+    try {
+        currentUser = JSON.parse(userStr);
+        document.getElementById('currentUser').textContent = `👤 ${currentUser.username}`;
+        
+        // 根据角色显示/隐藏管理员功能
+        const adminTabs = document.querySelectorAll('.admin-only');
+        adminTabs.forEach(tab => {
+            tab.style.display = currentUser.role === 'admin' ? '' : 'none';
+        });
+        
+        return true;
+    } catch (e) {
+        window.location.href = '/login';
+        return false;
+    }
+}
+
+// 退出登录
+function logout() {
+    localStorage.removeItem('auth_token');
+    localStorage.removeItem('auth_user');
+    window.location.href = '/login';
+}
+
 // 初始化
 document.addEventListener('DOMContentLoaded', () => {
+    // 先检查登录状态
+    if (!checkAuth()) return;
+    
     initTabs();
     initDateFilter();
     checkHealth();
@@ -36,7 +105,8 @@ document.addEventListener('DOMContentLoaded', () => {
 // 加载平台信息
 async function loadPlatformInfo() {
     try {
-        const res = await fetch(`${API_BASE}/platform`);
+        const res = await authFetch(`${API_BASE}/platform`);
+        if (!res) return;
         const data = await res.json();
         const badge = document.getElementById('platformInfo');
         if (badge) {
@@ -52,7 +122,8 @@ async function loadPlatformInfo() {
 // 加载系统配置
 async function loadSystemConfig() {
     try {
-        const res = await fetch(`${API_BASE}/config`);
+        const res = await authFetch(`${API_BASE}/config`);
+        if (!res) return;
         const data = await res.json();
         systemConfig.inputBucket = data.input_bucket || '';
         systemConfig.outputBucket = data.output_bucket || '';
@@ -79,6 +150,8 @@ function initTabs() {
                 loadQueueStats();
             } else if (tab.dataset.tab === 'presets') {
                 loadPresets();
+            } else if (tab.dataset.tab === 'users') {
+                loadUsers();
             }
         });
     });
@@ -136,11 +209,11 @@ async function generateFFmpegParams(event) {
     document.getElementById('autoTestResult').style.display = 'none';
     
     try {
-        const res = await fetch(`${API_BASE}/llm/generate`, {
+        const res = await authFetch(`${API_BASE}/llm/generate`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ requirement, input_format: inputFormat, auto_test: autoTest })
         });
+        if (!res) return;
         const data = await res.json();
         
         if (!res.ok) {
@@ -245,15 +318,15 @@ async function runTest() {
     btn.textContent = '⏳ 测试中...';
     
     try {
-        const res = await fetch(`${API_BASE}/llm/test`, {
+        const res = await authFetch(`${API_BASE}/llm/test`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 input_file: inputFile,
                 ffmpeg_args: currentAIResult.ffmpeg_args,
                 output_ext: currentAIResult.output_ext
             })
         });
+        if (!res) return;
         const data = await res.json();
         
         document.getElementById('testResult').style.display = 'block';
@@ -309,9 +382,8 @@ async function fixFailedParams() {
     btn.textContent = '⏳ AI 分析修正中...';
     
     try {
-        const res = await fetch(`${API_BASE}/llm/fix`, {
+        const res = await authFetch(`${API_BASE}/llm/fix`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 requirement: document.getElementById('aiRequirement').value.trim(),
                 input_format: document.getElementById('aiInputFormat').value.trim(),
@@ -321,6 +393,7 @@ async function fixFailedParams() {
                 ffmpeg_output: lastTestError.output
             })
         });
+        if (!res) return;
         const data = await res.json();
         
         if (!res.ok) {
@@ -378,9 +451,8 @@ async function confirmSavePreset() {
     }
     
     try {
-        const res = await fetch(`${API_BASE}/presets`, {
+        const res = await authFetch(`${API_BASE}/presets`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 name,
                 description,
@@ -388,6 +460,7 @@ async function confirmSavePreset() {
                 output_ext: currentAIResult.output_ext
             })
         });
+        if (!res) return;
         const data = await res.json();
         
         if (!res.ok) {
@@ -408,7 +481,8 @@ async function confirmSavePreset() {
 // 加载预设列表
 async function loadPresets() {
     try {
-        const res = await fetch(`${API_BASE}/presets`);
+        const res = await authFetch(`${API_BASE}/presets`);
+        if (!res) return;
         const data = await res.json();
         const tbody = document.querySelector('#presetsTable tbody');
         if (!tbody) return;
@@ -444,7 +518,8 @@ async function deletePreset(presetId) {
     if (!confirm('确定要删除此预设吗？')) return;
     
     try {
-        const res = await fetch(`${API_BASE}/presets/${presetId}`, { method: 'DELETE' });
+        const res = await authFetch(`${API_BASE}/presets/${presetId}`, { method: 'DELETE' });
+        if (!res) return;
         const data = await res.json();
         
         if (res.ok) {
@@ -462,7 +537,8 @@ async function deletePreset(presetId) {
 // 加载转码类型选项
 async function loadTranscodeTypes() {
     try {
-        const res = await fetch(`${API_BASE}/presets`);
+        const res = await authFetch(`${API_BASE}/presets`);
+        if (!res) return;
         const data = await res.json();
         const container = document.getElementById('transcodeTypeCheckboxes');
         if (!container) return;
@@ -498,7 +574,8 @@ async function refreshDashboard() {
 
 async function loadQueueStats() {
     try {
-        const res = await fetch(`${API_BASE}/queue/status`);
+        const res = await authFetch(`${API_BASE}/queue/status`);
+        if (!res) return;
         const data = await res.json();
         document.getElementById('queueWaiting').textContent = data.approximate_number_of_messages || 0;
         document.getElementById('queueProcessing').textContent = data.approximate_number_of_messages_not_visible || 0;
@@ -509,16 +586,19 @@ async function loadQueueStats() {
 
 async function loadTaskStats() {
     try {
-        const queueRes = await fetch(`${API_BASE}/queue/status`);
+        const queueRes = await authFetch(`${API_BASE}/queue/status`);
+        if (!queueRes) return;
         const queueData = await queueRes.json();
         document.getElementById('pendingTasks').textContent = queueData.approximate_number_of_messages || 0;
         document.getElementById('processingTasks').textContent = queueData.approximate_number_of_messages_not_visible || 0;
         
-        const completedRes = await fetch(`${API_BASE}/tasks?status=completed&limit=1`);
+        const completedRes = await authFetch(`${API_BASE}/tasks?status=completed&limit=1`);
+        if (!completedRes) return;
         const completedData = await completedRes.json();
         document.getElementById('completedTasks').textContent = completedData.total || 0;
         
-        const failedRes = await fetch(`${API_BASE}/tasks?status=failed&limit=1`);
+        const failedRes = await authFetch(`${API_BASE}/tasks?status=failed&limit=1`);
+        if (!failedRes) return;
         const failedData = await failedRes.json();
         document.getElementById('failedTasks').textContent = failedData.total || 0;
     } catch (e) {
@@ -539,7 +619,8 @@ async function showTasksByStatus(status) {
 async function loadDashboardTasks() {
     const offset = (dashboardTasksPage - 1) * pageSize;
     try {
-        const res = await fetch(`${API_BASE}/tasks?status=${dashboardTasksStatus}&limit=${pageSize}&offset=${offset}`);
+        const res = await authFetch(`${API_BASE}/tasks?status=${dashboardTasksStatus}&limit=${pageSize}&offset=${offset}`);
+        if (!res) return;
         const data = await res.json();
         dashboardTasksTotal = data.total || 0;
         const tbody = document.querySelector('#dashboardTasksTable tbody');
@@ -579,7 +660,8 @@ function closeDashboardTasks() { document.getElementById('dashboardTasksSection'
 
 async function loadRecentTasks() {
     try {
-        const res = await fetch(`${API_BASE}/tasks?limit=5`);
+        const res = await authFetch(`${API_BASE}/tasks?limit=5`);
+        if (!res) return;
         const data = await res.json();
         const tbody = document.querySelector('#recentTasksTable tbody');
         tbody.innerHTML = '';
@@ -604,7 +686,8 @@ async function loadTasks() {
     if (date) url += `&date=${date}`;
     
     try {
-        const res = await fetch(url);
+        const res = await authFetch(url);
+        if (!res) return;
         const data = await res.json();
         totalTasks = data.total || 0;
         const tbody = document.querySelector('#tasksTable tbody');
@@ -707,7 +790,8 @@ function goToPage(page) { currentPage = page; loadTasks(); }
 
 async function viewTask(taskId) {
     try {
-        const res = await fetch(`${API_BASE}/tasks/${taskId}`);
+        const res = await authFetch(`${API_BASE}/tasks/${taskId}`);
+        if (!res) return;
         const task = await res.json();
         document.getElementById('taskDetailContent').innerHTML = createTaskDetail(task);
         document.getElementById('taskDetailModal').classList.add('active');
@@ -780,7 +864,8 @@ function closeModal() { document.getElementById('taskDetailModal').classList.rem
 async function retryTask(taskId) {
     if (!confirm('确定要重新运行此任务吗？')) return;
     try {
-        const res = await fetch(`${API_BASE}/tasks/${taskId}/retry`, { method: 'POST' });
+        const res = await authFetch(`${API_BASE}/tasks/${taskId}/retry`, { method: 'POST' });
+        if (!res) return;
         const data = await res.json();
         if (res.ok) { showToast('任务已重新加入队列', 'success'); loadTasks(); loadDashboard(); }
         else { showToast(data.error || '重新运行失败', 'error'); }
@@ -790,7 +875,8 @@ async function retryTask(taskId) {
 async function cancelTask(taskId) {
     if (!confirm('确定要取消此任务吗？')) return;
     try {
-        const res = await fetch(`${API_BASE}/tasks/${taskId}`, { method: 'DELETE' });
+        const res = await authFetch(`${API_BASE}/tasks/${taskId}`, { method: 'DELETE' });
+        if (!res) return;
         const data = await res.json();
         if (res.ok) { showToast('任务已取消', 'success'); loadTasks(); loadDashboard(); }
         else { showToast(data.error || '取消失败', 'error'); }
@@ -800,7 +886,8 @@ async function cancelTask(taskId) {
 async function abortTask(taskId) {
     if (!confirm('⚠️ 确定要中止此正在运行的任务吗？')) return;
     try {
-        const res = await fetch(`${API_BASE}/tasks/${taskId}/abort`, { method: 'POST' });
+        const res = await authFetch(`${API_BASE}/tasks/${taskId}/abort`, { method: 'POST' });
+        if (!res) return;
         const data = await res.json();
         if (res.ok) { showToast('任务已中止', 'success'); loadTasks(); loadDashboard(); }
         else { showToast(data.error || '中止失败', 'error'); }
@@ -814,7 +901,8 @@ async function refreshQueueStatus() { await loadQueueStats(); showToast('队列�
 async function purgeQueue() {
     if (!confirm('⚠️ 确定要清空队列吗？此操作不可恢复！')) return;
     try {
-        const res = await fetch(`${API_BASE}/queue/purge`, { method: 'DELETE' });
+        const res = await authFetch(`${API_BASE}/queue/purge`, { method: 'DELETE' });
+        if (!res) return;
         const data = await res.json();
         if (res.ok) { showToast('队列已清空', 'success'); loadQueueStats(); }
         else { showToast(data.error || '清空队列失败', 'error'); }
@@ -833,11 +921,11 @@ async function submitTask(event) {
     
     const transcodeTypes = Array.from(checkboxes).map(cb => cb.value);
     try {
-        const res = await fetch(`${API_BASE}/queue/add`, {
+        const res = await authFetch(`${API_BASE}/queue/add`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ input_bucket: inputBucket, input_key: inputKey, transcode_types: transcodeTypes })
         });
+        if (!res) return;
         const data = await res.json();
         if (res.ok) {
             showToast(`任务创建成功: ${data.task_id}`, 'success');
@@ -926,3 +1014,153 @@ function setupTableResize(table) {
         }
     });
 }
+
+
+// ==================== 用户管理功能 ====================
+
+// 加载用户列表
+async function loadUsers() {
+    try {
+        const res = await authFetch(`${API_BASE}/users`);
+        if (!res) return;
+        const data = await res.json();
+        const tbody = document.querySelector('#usersTable tbody');
+        if (!tbody) return;
+        tbody.innerHTML = '';
+        
+        if (data.users && data.users.length > 0) {
+            data.users.forEach(user => {
+                const roleClass = user.role === 'admin' ? 'admin' : 'user';
+                const roleText = user.role === 'admin' ? '管理员' : '普通用户';
+                const isAdmin = user.username === 'admin';
+                tbody.innerHTML += `
+                    <tr>
+                        <td>${user.username}</td>
+                        <td><span class="role-badge ${roleClass}">${roleText}</span></td>
+                        <td>${formatDate(user.created_at)}</td>
+                        <td>
+                            <div class="action-btns">
+                                <button class="btn btn-secondary btn-small" onclick="showChangePasswordModal('${user.username}')">修改密码</button>
+                                ${!isAdmin ? `<button class="btn btn-danger btn-small" onclick="deleteUser('${user.username}')">删除</button>` : ''}
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            });
+        } else {
+            tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#999;">暂无用户</td></tr>';
+        }
+    } catch (e) {
+        console.error('加载用户列表失败:', e);
+        showToast('加载用户列表失败', 'error');
+    }
+}
+
+// 显示添加用户模态框
+function showAddUserModal() {
+    document.getElementById('newUsername').value = '';
+    document.getElementById('newPassword').value = '';
+    document.getElementById('newRole').value = 'user';
+    document.getElementById('addUserModal').classList.add('active');
+}
+
+// 关闭添加用户模态框
+function closeAddUserModal() {
+    document.getElementById('addUserModal').classList.remove('active');
+}
+
+// 创建用户
+async function createUser() {
+    const username = document.getElementById('newUsername').value.trim();
+    const password = document.getElementById('newPassword').value;
+    const role = document.getElementById('newRole').value;
+    
+    if (!username || !password) {
+        showToast('请填写用户名和密码', 'error');
+        return;
+    }
+    
+    try {
+        const res = await authFetch(`${API_BASE}/users`, {
+            method: 'POST',
+            body: JSON.stringify({ username, password, role })
+        });
+        if (!res) return;
+        const data = await res.json();
+        
+        if (res.ok) {
+            showToast('用户创建成功', 'success');
+            closeAddUserModal();
+            loadUsers();
+        } else {
+            showToast(data.error || '创建用户失败', 'error');
+        }
+    } catch (e) {
+        showToast('创建用户失败', 'error');
+    }
+}
+
+// 删除用户
+async function deleteUser(username) {
+    if (!confirm(`确定要删除用户 "${username}" 吗？`)) return;
+    
+    try {
+        const res = await authFetch(`${API_BASE}/users/${username}`, { method: 'DELETE' });
+        if (!res) return;
+        const data = await res.json();
+        
+        if (res.ok) {
+            showToast('用户删除成功', 'success');
+            loadUsers();
+        } else {
+            showToast(data.error || '删除用户失败', 'error');
+        }
+    } catch (e) {
+        showToast('删除用户失败', 'error');
+    }
+}
+
+// 显示修改密码模态框
+function showChangePasswordModal(username) {
+    document.getElementById('changePasswordUsername').value = username;
+    document.getElementById('changeNewPassword').value = '';
+    document.getElementById('changePasswordModal').classList.add('active');
+}
+
+// 关闭修改密码模态框
+function closeChangePasswordModal() {
+    document.getElementById('changePasswordModal').classList.remove('active');
+}
+
+// 修改用户密码
+async function changeUserPassword() {
+    const username = document.getElementById('changePasswordUsername').value;
+    const newPassword = document.getElementById('changeNewPassword').value;
+    
+    if (!newPassword) {
+        showToast('请输入新密码', 'error');
+        return;
+    }
+    
+    try {
+        const res = await authFetch(`${API_BASE}/users/${username}/password`, {
+            method: 'PUT',
+            body: JSON.stringify({ new_password: newPassword })
+        });
+        if (!res) return;
+        const data = await res.json();
+        
+        if (res.ok) {
+            showToast('密码修改成功', 'success');
+            closeChangePasswordModal();
+        } else {
+            showToast(data.error || '修改密码失败', 'error');
+        }
+    } catch (e) {
+        showToast('修改密码失败', 'error');
+    }
+}
+
+// 点击模态框外部关闭
+document.getElementById('addUserModal')?.addEventListener('click', (e) => { if (e.target.id === 'addUserModal') closeAddUserModal(); });
+document.getElementById('changePasswordModal')?.addEventListener('click', (e) => { if (e.target.id === 'changePasswordModal') closeChangePasswordModal(); });

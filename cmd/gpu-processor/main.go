@@ -21,7 +21,7 @@ import (
 )
 
 func main() {
-	log.Println("🚀 启动GPU视频转码处理器...")
+	log.Println("🚀 启动智能媒体转码处理器...")
 
 	// 加载配置
 	cfg := appConfig.LoadConfig()

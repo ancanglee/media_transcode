@@ -1,6 +1,8 @@
 package config
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"os"
 	"strconv"
 	"time"
@@ -14,10 +16,15 @@ type Config struct {
 	SQSQueueURL   string
 	DynamoDBTable string
 
+	// 用户认证配置
+	UserTable string
+	JWTSecret string
+	APIKey    string // API Key 认证，用于外部系统调用
+
 	// API服务器配置
-	APIPort  string
-	APIHost  string
-	Debug    bool
+	APIPort string
+	APIHost string
+	Debug   bool
 
 	// GPU处理器配置
 	TempDir            string
@@ -37,6 +44,10 @@ func LoadConfig() *Config {
 		SQSQueueURL:   getEnv("SQS_QUEUE_URL", ""),
 		DynamoDBTable: getEnv("DYNAMODB_TABLE", "video-transcode-tasks"),
 
+		UserTable: getEnv("USER_TABLE", "video-transcode-users"),
+		JWTSecret: getOrGenerateJWTSecret(),
+		APIKey:    getOrGenerateAPIKey(),
+
 		APIPort: getEnv("API_PORT", "8080"),
 		APIHost: getEnv("API_HOST", "0.0.0.0"),
 		Debug:   debug,
@@ -52,4 +63,26 @@ func getEnv(key, defaultValue string) string {
 		return value
 	}
 	return defaultValue
+}
+
+// getOrGenerateJWTSecret 获取或自动生成JWT密钥
+func getOrGenerateJWTSecret() string {
+	if secret := os.Getenv("JWT_SECRET"); secret != "" {
+		return secret
+	}
+	// 自动生成随机密钥
+	bytes := make([]byte, 32)
+	rand.Read(bytes)
+	return hex.EncodeToString(bytes)
+}
+
+// getOrGenerateAPIKey 获取或自动生成 API Key
+func getOrGenerateAPIKey() string {
+	if key := os.Getenv("API_KEY"); key != "" {
+		return key
+	}
+	// 自动生成随机 API Key
+	bytes := make([]byte, 24)
+	rand.Read(bytes)
+	return "vt_" + hex.EncodeToString(bytes) // vt_ 前缀表示 video transcoder
 }
